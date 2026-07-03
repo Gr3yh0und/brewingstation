@@ -1,0 +1,6 @@
+# Secrets — copy config_example.h to config.h and fill in real values locally
+config.h
+
+# PlatformIO / build artifacts
+.pio/
+build/
