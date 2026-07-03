@@ -6,7 +6,7 @@ This is the custom PCB variant of the [Brewing Station](../brewingstation). The 
 
 Automated beer brewing temperature controller. Reads temperature from multiple sensors, controls a GGM IDS2 induction cooker via a proprietary serial protocol, and runs a PID loop to hold a target mash temperature. Integrates with CraftBeerPi 3 and 4 via MQTT.
 
-See the [parent project README](../brewingstation) and [repository CONTEXT](../CONTEXT.md) for full firmware documentation, MQTT topics, and the induction cooker protocol.
+See the [parent project README](../brewingstation) for the MQTT topic reference and induction cooker protocol background — the firmware is identical, so it all applies here too.
 
 ---
 
@@ -95,6 +95,20 @@ Copy `config_example.h` to `config.h` and fill in your network credentials and s
 #define MQTT_ROOT_PATH  "cave"
 #define MQTT_DEVICE     "brewery"
 ```
+
+---
+
+## Build & Flash
+
+**PlatformIO:**
+
+```sh
+pio run -e esp32doit-devkit-v1
+pio run -e esp32doit-devkit-v1 -t upload
+pio device monitor
+```
+
+**Arduino IDE:** open `brewingstation2.ino` directly and install the libraries listed at the top of the sketch.
 
 ---
 
