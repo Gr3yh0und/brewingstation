@@ -29,6 +29,7 @@
 #include <Fonts/FreeSans24pt7b.h>
 #include <PCF8574.h>
 #include "config.h"
+#include "pure_logic.h"
 
 #define VERSION "3.0"
 
@@ -322,19 +323,6 @@ void ARDUINO_ISR_ATTR readInputWrap() {
   inductionCooker.readInput();
 }
 
-const char* inductionErrorString(uint8_t code) {
-  switch (code) {
-    case 1: case 2: return "E0:NoPot";
-    case 3:         return "E1:Circ";
-    case 4: case 5: return "E3:OHeat";
-    case 6:         return "E4:Sens";
-    case 9:         return "E7:LoVlt";
-    case 10:        return "E8:HiVlt";
-    case 14:        return "EC:Panel";
-    default:        return "Err:???";
-  }
-}
-
 // ─── Safety ───────────────────────────────────────────────────────────────────
 
 bool isSensorHealthy() {
@@ -588,12 +576,6 @@ void setGPIO5(bool on) {
 }
 
 // ─── Sensors ──────────────────────────────────────────────────────────────────
-
-// Derives slope/offset from two (raw, reference) calibration points: corrected = raw * slope + offset
-void computeCalibration(float raw1, float ref1, float raw2, float ref2, float &slope, float &offset) {
-  slope = (ref2 - ref1) / (raw2 - raw1);
-  offset = ref1 - slope * raw1;
-}
 
 void setup_sensor_calibration() {
   const float dsRaw1[SENSOR_MAXIMUM] = SENSOR_DS_CAL_POINT1_RAW;
@@ -950,18 +932,9 @@ void publishStatus() {
 
 // ─── Button ───────────────────────────────────────────────────────────────────
 
-int getButtonBucket(int val) {
-  if (val == 0)                      return 6;  // B6: 100%
-  if (val < BUTTON_THRESHOLD_B5)     return 5;  // B5:  80%
-  if (val < BUTTON_THRESHOLD_B4)     return 4;  // B4:  60%
-  if (val < BUTTON_THRESHOLD_B3)     return 3;  // B3:  40%
-  if (val < BUTTON_THRESHOLD_B2)     return 2;  // B2:  20%
-  if (val < BUTTON_THRESHOLD_B1)     return 1;  // B1:   0%
-  return 0;                                      // no press
-}
-
 void handleButton(int val) {
-  int bucket = getButtonBucket(val);
+  int bucket = getButtonBucket(val, BUTTON_THRESHOLD_B1, BUTTON_THRESHOLD_B2,
+                                BUTTON_THRESHOLD_B3, BUTTON_THRESHOLD_B4, BUTTON_THRESHOLD_B5);
   if (bucket == 0) { lastButtonBucket = 0; return; }
   if (bucket == lastButtonBucket) return;
   if (millis() - lastButtonChange < BUTTON_DEBOUNCE_MS) return;

@@ -46,3 +46,19 @@ jobs:
       - name: Build (${{ matrix.env }})
         run: pio run -e ${{ matrix.env }}
         working-directory: brewingstation3
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Run native unit tests
+        run: pio test -e native
+        working-directory: brewingstation3

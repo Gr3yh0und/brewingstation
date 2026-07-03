@@ -35,19 +35,25 @@ RISC-V single-core 160 MHz, WiFi 6, BLE 5.3, USB-CDC built-in (no external USB-U
 
 ```
 brewingstation3/
-├── platformio.ini          ← build config, all lib deps declared here
+├── platformio.ini          ← build config, all lib deps declared here; also defines env:native for tests
 ├── .gitignore              ← excludes .pio/, include/config.h
 ├── src/
-│   └── main.cpp            ← all firmware (~1133 lines)
+│   └── main.cpp            ← all firmware (~1150 lines)
 ├── include/
 │   ├── config_example.h    ← all pin defs + tunable defaults (committed)
-│   └── config.h            ← your secrets: WiFi, MQTT, OTA password (gitignored)
+│   ├── config.h            ← your secrets: WiFi, MQTT, OTA password (gitignored)
+│   └── pure_logic.h        ← hardware-independent logic (calibration math, button bucket mapping,
+│                              induction error strings) — pulled out of main.cpp so it's unit-testable
+├── test/
+│   └── test_pure_logic/    ← Unity tests for pure_logic.h, run via `pio test -e native`
 └── kicad/
     ├── brewingstation3.kicad_sch   ← KiCad 10 schematic (generated — do not hand-edit)
     ├── brewingstation3.kicad_pro   ← KiCad 10 project file
     ├── wire_schematic.py           ← canonical generator: components + full wiring (run this)
     └── place_components.py         ← old generator: components only, no wiring (reference)
 ```
+
+**Tests:** `pio test -e native` runs `test/test_pure_logic` on the host (no ESP32 toolchain, no device). Covers `computeCalibration()`, `getButtonBucket()`, and `inductionErrorString()` from `include/pure_logic.h`. `env:native` excludes `src/` from the build (`build_src_filter = -<*>`) since `main.cpp` pulls in Arduino/ESP32-only headers that don't exist on native. Wired into CI as a separate `test` job in `.github/workflows/build-brewingstation3.yml`. When adding new pure logic (no `digitalWrite`/`millis`/etc.), prefer putting it in `pure_logic.h` and testing it there rather than burying it in `main.cpp`.
 
 **To build:** Open this folder in VS Code with PlatformIO IDE installed. Build/Upload/Monitor via the status bar icons, or:
 ```sh
