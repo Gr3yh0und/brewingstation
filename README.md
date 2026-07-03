@@ -1,5 +1,10 @@
 # Brewing Station
 
+[![Build brewingstation3](https://github.com/Gr3yh0und/brewingstation/actions/workflows/build-brewingstation3.yml/badge.svg)](https://github.com/Gr3yh0und/brewingstation/actions/workflows/build-brewingstation3.yml)
+[![License: MIT](https://img.shields.io/github/license/Gr3yh0und/brewingstation)](LICENSE)
+[![PlatformIO](https://img.shields.io/badge/powered%20by-PlatformIO-orange)](https://platformio.org/)
+[![Framework: Arduino](https://img.shields.io/badge/framework-Arduino-00979D)](https://www.arduino.cc/)
+
 Firmware, hardware, and PCB design for a DIY automated beer brewing controller. An ESP32-based device reads mash temperature from multiple sensors, drives a [GGM IDS2 induction cooktop](https://www.ggmgastro.com/de-de-eur/induktionsherd-3-5-kw-1) through PID control, and integrates with [CraftBeerPi](https://web.craftbeerpi.com/) via MQTT.
 
 This repo tracks the project's evolution across several hardware/firmware generations.
@@ -27,3 +32,20 @@ Each own-project folder is self-contained with its own README and config. In gen
 1. Pick a generation — `brewingstation3` for new builds, the earlier folders for reference or repairing existing hardware.
 2. Copy `config_example.h` (or `include/config_example.h` for `brewingstation3`) to `config.h` and fill in your WiFi/MQTT/OTA settings. `config.h` is gitignored — never commit real credentials.
 3. Build with PlatformIO (`pio run`) or open the `.ino` directly in the Arduino IDE — see that folder's README for board-specific notes.
+
+All three PlatformIO projects can also be opened together via [brewingstation.code-workspace](brewingstation.code-workspace) (VS Code multi-root workspace).
+
+## Testing
+
+`brewingstation3` has a native unit test suite for its hardware-independent logic (calibration math, button-ladder mapping, induction error codes) — runs on the host, no ESP32 toolchain or device required:
+
+```sh
+cd brewingstation3
+pio test -e native
+```
+
+CI runs both the firmware build and this test suite on every push — see the badge above or [.github/workflows/build-brewingstation3.yml](.github/workflows/build-brewingstation3.yml).
+
+## License
+
+[MIT](LICENSE) — see [LICENSE](LICENSE) for the full text.
