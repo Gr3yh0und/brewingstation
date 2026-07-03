@@ -10,7 +10,6 @@ Credit: the GGM IDS2 induction cooktop's RS232/serial protocol — pulse timings
 
 | Folder | Status | Board | Build system | Notes |
 |---|---|---|---|---|
-| [brewingstation_old](brewingstation_old/) | Earliest snapshot | ESP8266 (Wemos D1 mini) | Arduino IDE (`.ino`) | Bare firmware only, no README/config split. First working version, later ported to ESP32. |
 | [brewingstation](brewingstation/) | V1 | ESP32 | Arduino IDE (`.ino`) | Breadboard prototype. Documented in its own [README](brewingstation/README.md), includes Fritzing schematic and gerbers. |
 | [brewingstation2](brewingstation2/) | V1, custom PCB | DOIT ESP32 DEVKIT V1 | Arduino IDE (`.ino`) | Same firmware as `brewingstation` (v1.13), fabricated 2-layer PCB instead of a breadboard. See [README](brewingstation2/README.md). |
 | [brewingstation3](brewingstation3/) | **Active** | ESP32-C6-WROOM-1U | PlatformIO | Full rewrite: PID mash control, multi-sensor support, safety shutdowns, brew timer, KiCad schematic, 3D-printable case. See [README](brewingstation3/README.md), [HARDWARE.md](brewingstation3/HARDWARE.md), [BOM.md](brewingstation3/BOM.md), [CASE.md](brewingstation3/CASE.md). |
@@ -25,4 +24,4 @@ Each own-project folder is self-contained with its own README and config. In gen
 
 1. Pick a generation — `brewingstation3` for new builds, the earlier folders for reference or repairing existing hardware.
 2. Copy `config_example.h` (or `include/config_example.h` for `brewingstation3`) to `config.h` and fill in your WiFi/MQTT/OTA settings. `config.h` is gitignored — never commit real credentials.
-3. Follow the build instructions in that folder's README (Arduino IDE for `brewingstation`/`brewingstation2`/`brewingstation_old`, PlatformIO for `brewingstation3`).
+3. Follow the build instructions in that folder's README (Arduino IDE for `brewingstation`/`brewingstation2`, PlatformIO for `brewingstation3`).
