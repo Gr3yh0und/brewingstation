@@ -14,6 +14,12 @@ Automated beer brewing temperature controller. Reads temperature from multiple s
 | [BOM.md](BOM.md) | Full bill of materials with order links |
 | [CASE.md](CASE.md) | 3D-printable enclosure — dimensions, assembly, panel layout |
 
+## Releases
+
+Versioned as `3.0.0-alpha.N` (SemVer, pre-1.0 track) while the hardware is unverified — every [release](../../releases) is marked **pre-release** on GitHub until the PCB is built, soldered, and confirmed working end-to-end, at which point it graduates to `3.0.0`. Tags use a plain `3.*` pattern (no `v` prefix) to avoid colliding with `brewingstation` (V1)'s `vX.Y.Z` tags.
+
+Cutting a release: `git tag 3.0.0-alpha.N && git push origin 3.0.0-alpha.N` — this runs the native test suite as a gate, then builds and publishes binaries, a KiCad design snapshot, and the case source to a GitHub Release. See [.github/workflows/release-brewingstation3.yml](../.github/workflows/release-brewingstation3.yml).
+
 ---
 
 ## Software Features
