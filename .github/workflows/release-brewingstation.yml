@@ -1,0 +1,113 @@
+name: Release brewingstation (V1)
+
+# NOTE: tags are plain semver (vX.Y.Z) since only brewingstation (V1) uses this
+# release train today. If brewingstation3 starts tagging releases too, switch
+# both projects to prefixed tags (e.g. brewingstation-vX.Y.Z /
+# brewingstation3-vX.Y.Z) to avoid trigger collisions.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to (re-)release'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Provide local config.h from example
+        run: cp config_example.h config.h
+        working-directory: brewingstation
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: pio-release-brewingstation-${{ hashFiles('brewingstation/platformio.ini') }}
+          restore-keys: |
+            pio-release-brewingstation-
+
+      - name: Build firmware
+        run: pio run -e esp32doit-devkit-v1
+        working-directory: brewingstation
+
+      - name: Stage release assets
+        run: |
+          set -eu
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          OUT="dist"
+          mkdir -p "$OUT"
+
+          BUILD=brewingstation/.pio/build/esp32doit-devkit-v1
+          cp "$BUILD/bootloader.bin"       "$OUT/brewingstation-$TAG-bootloader.bin"
+          cp "$BUILD/partitions.bin"       "$OUT/brewingstation-$TAG-partitions.bin"
+          cp "$BUILD/firmware.bin"         "$OUT/brewingstation-$TAG-firmware.bin"
+          cp "$BUILD/firmware.factory.bin" "$OUT/brewingstation-$TAG-merged-flash-image.bin"
+
+          # Hardware design files per variant, zipped
+          (cd brewingstation/hardware/breadboard && zip -r "../../../$OUT/brewingstation-$TAG-hardware-breadboard.zip" .)
+          (cd brewingstation/hardware/pcb        && zip -r "../../../$OUT/brewingstation-$TAG-hardware-pcb.zip" .)
+
+          (cd "$OUT" && sha256sum * > SHA256SUMS.txt)
+          ls -la "$OUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: brewingstation ${{ github.event.inputs.tag || github.ref_name }}
+          body: |
+            Brewing Station V1 firmware release — board: **DOIT ESP32 DEVKIT V1** (ESP32), one firmware for both hardware variants (breadboard and custom PCB).
+
+            ## Flashing
+
+            Easiest: flash the single merged image at offset `0x0`:
+
+            ```sh
+            esptool.py --chip esp32 --port <PORT> --baud 921600 write_flash 0x0 brewingstation-${{ github.event.inputs.tag || github.ref_name }}-merged-flash-image.bin
+            ```
+
+            Or flash the individual pieces at their normal offsets:
+
+            ```sh
+            esptool.py --chip esp32 --port <PORT> --baud 921600 write_flash \
+              0x1000  brewingstation-${{ github.event.inputs.tag || github.ref_name }}-bootloader.bin \
+              0x8000  brewingstation-${{ github.event.inputs.tag || github.ref_name }}-partitions.bin \
+              0x10000 brewingstation-${{ github.event.inputs.tag || github.ref_name }}-firmware.bin
+            ```
+
+            OTA updates only need `*-firmware.bin`.
+
+            Before first boot, copy `config_example.h` to `config.h` in `brewingstation/` and fill in your WiFi/MQTT settings, then rebuild — the binaries here use placeholder credentials and will not connect to your network as-is.
+
+            ## Assets
+
+            - `*-merged-flash-image.bin` — single-file image, flash at `0x0`
+            - `*-bootloader.bin`, `*-partitions.bin`, `*-firmware.bin` — individual pieces
+            - `*-hardware-breadboard.zip` / `*-hardware-pcb.zip` — Fritzing project, schematic/wiring images, and gerbers for each hardware variant
+            - `SHA256SUMS.txt` — checksums for everything above
+
+            See [brewingstation/README.md](https://github.com/${{ github.repository }}/blob/${{ github.event.inputs.tag || github.ref_name }}/brewingstation/README.md) for hardware details, MQTT topics, and build instructions.
+          files: |
+            dist/*
+          generate_release_notes: true
