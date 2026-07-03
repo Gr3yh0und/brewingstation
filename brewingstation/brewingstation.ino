@@ -587,9 +587,8 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
     }
   }
 
-  // Debugging — NOTE: strcmp() never reliably returns exactly 1 for "not equal", so this
-  // effectively never fires. Pre-existing behavior, left unchanged; likely meant "!= 0".
-  if (strcmp(topic, TOPIC_PID_ROOT) == 1) {
+  // Debugging — logs any message received on the bare pid topic (distinct from its subtopics)
+  if (strcmp(topic, TOPIC_PID_ROOT) == 0) {
     String output = "MQTT: Received on topic [" + String(topic) + "] ";
     for (int i = 0; i < length; i++) {
       output += (char)payload[i];
