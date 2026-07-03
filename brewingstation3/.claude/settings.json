@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pio system *)",
+      "PowerShell(pio system prune -f 2>&1)",
+      "PowerShell(Get-ChildItem \"$env:USERPROFILE\\\\.platformio\" -Depth 1 | Select-Object Name, LastWriteTime)",
+      "PowerShell(Test-Path \"$env:USERPROFILE\\\\.platformio\"; Get-ChildItem \"$env:USERPROFILE\\\\.platformio\" -ErrorAction SilentlyContinue | Select-Object Name)",
+      "PowerShell(Get-ChildItem \"$env:USERPROFILE\\\\.platformio\" | Select-Object Name)",
+      "PowerShell(dir \"$env:USERPROFILE\\\\.platformio\")",
+      "PowerShell(dir \"$env:USERPROFILE\\\\.platformio\\\\packages\")",
+      "PowerShell(dir \"$env:USERPROFILE\\\\.platformio\\\\platforms\")",
+      "PowerShell(dir \"$env:USERPROFILE\\\\.platformio\\\\platforms\\\\espressif32@6.9.0\" | Select-Object Name)",
+      "PowerShell(Get-ChildItem \"$env:USERPROFILE\\\\.platformio\\\\platforms\\\\espressif32@6.9.0\" -Force)",
+      "Read(//c/Users/Gr3yh0und/.platformio/platforms/espressif32@6.9.0/**)",
+      "Read(//d/Projects/esp8266projects/**)",
+      "Bash(grep -n \"gen_schematic.py\" /dev/null; grep -n \"Footprint\\\\|footprint\\\\|SOIC\\\\|DIP\\\\|PinHeader\\\\|Module\\\\|MAX31865\\\\|BME280\\\\|SSD1306\\\\|Relay\\\\|PCF8574\\\\|GGM\\\\|GPIO_EXT\\\\|Conn\" \"d:/Projects/esp8266projects/brewingstation3/kicad/gen_schematic.py\" | head -40)",
+      "Read(//dev/**)",
+      "Bash(python gen_schematic.py)",
+      "Bash(python -c ' *)",
+      "Bash(grep -E '^\\\\s*\\\\\\(pad ' \"/c/Users/Gr3yh0und/Documents/KiCad/10.0/3rdparty/footprints/com_github_espressif_kicad-libraries/Espressif.pretty/ESP32-C6-DevKitC-1.kicad_mod\" | head -40)",
+      "Read(//c/Users/Gr3yh0und/Documents/KiCad/10.0/3rdparty/footprints/com_github_espressif_kicad-libraries/Espressif.pretty/**)",
+      "Read(//c/Users/Gr3yh0und/Documents/KiCad/**)",
+      "Bash(xargs grep -l \"ESP32-C6-DevKitC\")",
+      "Bash(pio run *)",
+      "PowerShell(cd \"d:\\\\Projects\\\\esp8266projects\\\\brewingstation3\"; & \"$env:USERPROFILE\\\\.platformio\\\\penv\\\\Scripts\\\\pio.exe\" run -e esp32c6 2>&1 | Select-Object -Last 25)",
+      "Read(//d/Projects/KiCad/share/kicad/demos/cm5_minima/**)",
+      "Read(//d/Projects/KiCad/share/kicad/demos/**)",
+      "Read(//d/Projects/KiCad/**)",
+      "Bash(ls \"d:/Projects/KiCAD-MCP-Server/dist/\" | head -5)",
+      "Read(//d/Projects/KiCAD-MCP-Server/dist/**)",
+      "Bash(PYTHONPATH=\"D:/Projects/KiCad/bin/Lib/site-packages\" python -c \"import pcbnew; print\\('OK'\\)\")",
+      "Bash(\"d:/Projects/KiCad/bin/python.exe\" -c \"import pcbnew; print\\('OK'\\)\")",
+      "Read(//d/Projects/KiCAD-MCP-Server/src/**)"
+    ],
+    "additionalDirectories": [
+      "d:\\Projects\\esp8266projects"
+    ]
+  }
+}

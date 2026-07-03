@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "Brew") (type "KiCad") (uri "${KIPRJMOD}/Brew.pretty") (options "") (descr "Project-local custom footprints"))
+)
