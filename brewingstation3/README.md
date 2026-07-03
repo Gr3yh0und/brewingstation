@@ -2,6 +2,8 @@
 
 Automated beer brewing temperature controller. Reads temperature from multiple sensors, controls a GGM IDS2 induction cooker via a proprietary serial protocol, and runs a PID loop to hold a target mash temperature. Integrates with CraftBeerPi 3 and 4 via MQTT.
 
+**Status: work in progress.** Firmware compiles but is not yet proven on real hardware — the PCB hasn't been soldered/assembled, nothing has been tested end-to-end, and the 3D-printable case hasn't been printed.
+
 **Board:** ESP32-C6-WROOM-1U (ESP32-C6-DevKitC-1-N8)  
 **Toolchain:** PlatformIO + VS Code (see [platformio.ini](platformio.ini))  
 **Schematic:** KiCad 10 — see [kicad/](kicad/)

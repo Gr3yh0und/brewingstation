@@ -12,11 +12,11 @@ Credit: the GGM IDS2 induction cooktop's RS232/serial protocol — pulse timings
 |---|---|---|---|---|
 | [brewingstation](brewingstation/) | V1 | ESP32 | Arduino IDE (`.ino`) | Breadboard prototype. Documented in its own [README](brewingstation/README.md), includes Fritzing schematic and gerbers. |
 | [brewingstation2](brewingstation2/) | V1, custom PCB | DOIT ESP32 DEVKIT V1 | Arduino IDE (`.ino`) | Same firmware as `brewingstation` (v1.13), fabricated 2-layer PCB instead of a breadboard. See [README](brewingstation2/README.md). |
-| [brewingstation3](brewingstation3/) | **Active** | ESP32-C6-WROOM-1U | PlatformIO | Full rewrite: PID mash control, multi-sensor support, safety shutdowns, brew timer, KiCad schematic, 3D-printable case. See [README](brewingstation3/README.md), [HARDWARE.md](brewingstation3/HARDWARE.md), [BOM.md](brewingstation3/BOM.md), [CASE.md](brewingstation3/CASE.md). |
+| [brewingstation3](brewingstation3/) | **WIP** | ESP32-C6-WROOM-1U | PlatformIO | Full rewrite: PID mash control, multi-sensor support, safety shutdowns, brew timer, KiCad schematic, 3D-printable case. See [README](brewingstation3/README.md), [HARDWARE.md](brewingstation3/HARDWARE.md), [BOM.md](brewingstation3/BOM.md), [CASE.md](brewingstation3/CASE.md). |
 
 All generations share the same core idea: control the GGM IDS2 induction cooktop over its proprietary serial protocol, read temperature from DS18B20/PT100/PT1000/BME sensors, drive a couple of OLED displays and status LEDs, and talk to CraftBeerPi over MQTT.
 
-`brewingstation3` is where active development happens; the earlier folders are kept as historical/reference hardware revisions.
+`brewingstation3` is where active development happens; the earlier folders are kept as historical/reference hardware revisions. It is **work in progress**: firmware compiles but is not yet proven on real hardware — the PCB hasn't been soldered/assembled, nothing has been tested end-to-end, and the 3D-printable case hasn't been printed.
 
 ## Getting started
 
