@@ -18,3 +18,8 @@ __pycache__/
 
 # KiCad schematic UUID map (auto-generated, not for version control)
 kicad/.uuid_map.json
+
+# KiCad editor/tooling backups — not canonical source
+kicad/.mcp-backups/
+kicad/_restore_backup_*/
+kicad/kicad.zip
