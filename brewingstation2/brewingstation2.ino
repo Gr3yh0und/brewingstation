@@ -103,6 +103,28 @@ PubSubClient mqttClient(wifiClient);
 Syslog syslog(udpClient, SYSLOG_SERVER, SYSLOG_PORT, hostname, SYSLOG_APP_NAME, LOG_KERN);
 bool message_received = false;
 
+// Subscribe-side topics for mqttCallback() — built from MQTT_ROOT_PATH/MQTT_DEVICE once at
+// startup (see setup_topics()) instead of hardcoding the root/device names in every comparison.
+char TOPIC_HEATER_POWER[64];
+char TOPIC_PID_ROOT[64];
+char TOPIC_PID_CONTROL[64];
+char TOPIC_PID_RESET[64];
+char TOPIC_PID_P[64];
+char TOPIC_PID_I[64];
+char TOPIC_PID_D[64];
+char TOPIC_PID_TARGET[64];
+
+void setup_topics() {
+  snprintf(TOPIC_HEATER_POWER, sizeof(TOPIC_HEATER_POWER), "%s/%s/%s", MQTT_ROOT_PATH, MQTT_DEVICE, INDUCTION_MQTT_COMMANDS);
+  snprintf(TOPIC_PID_ROOT,     sizeof(TOPIC_PID_ROOT),     "%s/%s/%s", MQTT_ROOT_PATH, MQTT_DEVICE, PID_MQTT_TOPIC);
+  snprintf(TOPIC_PID_CONTROL,  sizeof(TOPIC_PID_CONTROL),  "%s/%s/%s/control", MQTT_ROOT_PATH, MQTT_DEVICE, PID_MQTT_TOPIC);
+  snprintf(TOPIC_PID_RESET,    sizeof(TOPIC_PID_RESET),    "%s/%s/%s/reset",   MQTT_ROOT_PATH, MQTT_DEVICE, PID_MQTT_TOPIC);
+  snprintf(TOPIC_PID_P,        sizeof(TOPIC_PID_P),        "%s/%s/%s/p",       MQTT_ROOT_PATH, MQTT_DEVICE, PID_MQTT_TOPIC);
+  snprintf(TOPIC_PID_I,        sizeof(TOPIC_PID_I),        "%s/%s/%s/i",       MQTT_ROOT_PATH, MQTT_DEVICE, PID_MQTT_TOPIC);
+  snprintf(TOPIC_PID_D,        sizeof(TOPIC_PID_D),        "%s/%s/%s/d",       MQTT_ROOT_PATH, MQTT_DEVICE, PID_MQTT_TOPIC);
+  snprintf(TOPIC_PID_TARGET,   sizeof(TOPIC_PID_TARGET),   "%s/%s/%s/target", MQTT_ROOT_PATH, MQTT_DEVICE, PID_MQTT_TOPIC);
+}
+
 // Timer
 Timer timerTempStatus;
 Timer timerTempRead;
@@ -477,7 +499,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
   deserializeJson(doc, payload, length);
 
   // Induction control
-  if (strcmp(topic, "cave/brewery/heater/power") == 0) {
+  if (strcmp(topic, TOPIC_HEATER_POWER) == 0) {
     String state = doc["state"];
     int power = doc["power"];
     if (state == "off") {
@@ -498,7 +520,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
   }
 
   // PID: Turn on / off
-  if (strcmp(topic, "cave/brewery/pid/control") == 0) {
+  if (strcmp(topic, TOPIC_PID_CONTROL) == 0) {
     String state = doc["state"];
     if (state == "on") {
       PID_state = true;
@@ -511,7 +533,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
 
   if (PID_state == true) {
     // PID: Reset Output
-    if (strcmp(topic, "cave/brewery/pid/reset") == 0) {
+    if (strcmp(topic, TOPIC_PID_RESET) == 0) {
       String output = doc["output"];
       if (output == "true") {
         Output = 0;
@@ -522,7 +544,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
     }
 
     // PID: Change P proportion
-    if (strcmp(topic, "cave/brewery/pid/p") == 0) {
+    if (strcmp(topic, TOPIC_PID_P) == 0) {
       double P_prop = doc["P"];
       if (P_prop != PID_P) {
         Serial.print("PID: Changing P proportion from ");
@@ -534,7 +556,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
     }
 
     // PID: Change I proportion
-    if (strcmp(topic, "cave/brewery/pid/i") == 0) {
+    if (strcmp(topic, TOPIC_PID_I) == 0) {
       double I_prop = doc["I"];
       if (I_prop != PID_I) {
         Serial.print("PID: Changing I proportion from ");
@@ -546,7 +568,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
     }
 
     // PID: Change D proportion
-    if (strcmp(topic, "cave/brewery/pid/d") == 0) {
+    if (strcmp(topic, TOPIC_PID_D) == 0) {
       double D_prop = doc["D"];
       if (D_prop != PID_D) {
         Serial.print("PID: Changing D proportion from ");
@@ -558,15 +580,16 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
     }
 
     // PID: Set Target Temperature
-    if (strcmp(topic, "cave/brewery/pid/target") == 0) {
+    if (strcmp(topic, TOPIC_PID_TARGET) == 0) {
       double targetTemperature = doc["targetTemperature"];
       PID_Setpoint = targetTemperature;
       Serial.println("PID: Setting target temperature for PID to " + String(targetTemperature));
     }
   }
 
-  // Debugging
-  if (strcmp(topic, "cave/brewery/pid") == 1) {
+  // Debugging — NOTE: strcmp() never reliably returns exactly 1 for "not equal", so this
+  // effectively never fires. Pre-existing behavior, left unchanged; likely meant "!= 0".
+  if (strcmp(topic, TOPIC_PID_ROOT) == 1) {
     String output = "MQTT: Received on topic [" + String(topic) + "] ";
     for (int i = 0; i < length; i++) {
       output += (char)payload[i];
@@ -592,6 +615,9 @@ void setup() {
 
   // Setup buttons
   pinMode(BUTTON_PIN, INPUT);
+
+  // Pre-compute MQTT topics used for comparisons in mqttCallback()
+  setup_topics();
 
   // WIFI configuration
   Serial.print("Setting up Wifi connection... ");
