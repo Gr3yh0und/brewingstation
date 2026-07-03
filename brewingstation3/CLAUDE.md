@@ -137,7 +137,7 @@ PCF8574_PIN_LED_100     P5
 - [x] **Multiple MAX31865 sensors** — deliberately dropped; single MAX31865 only
 
 ### Firmware only
-- [ ] Sensor calibration: per-sensor offset + two-point calibration (BME680 has a fixed offset; DS18B20/MAX31865 have none yet)
+- [x] Sensor calibration: two-point linear calibration (`corrected = raw * slope + offset`) computed at startup from config-defined (raw, reference) point pairs. `computeCalibration()` + `setup_sensor_calibration()` in `src/main.cpp`; per-sensor points (DS18B20 array, MAX31865, BME680) in `config.h` / `config_example.h` as `SENSOR_{DS,PT100X,BME680}_CAL_POINT{1,2}_{RAW,REF}`. Not yet persisted to flash — depends on the LittleFS config-persistence item below.
 - [ ] WiFi setup via captive portal (WiFiManager)
 - [ ] OTA via browser upload (web portal) — ArduinoOTA already works over LAN
 - [ ] Web interface: live dashboard

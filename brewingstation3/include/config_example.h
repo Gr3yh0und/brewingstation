@@ -50,12 +50,37 @@
 #define SENSOR_PT100X_Config  MAX31865_2WIRE
 
 // SENSOR configuration BME680 — software SPI (shares MOSI/MISO/CLK with MAX31865)
-#define SENSOR_BME680_OFFSET   2.0
 #define SEALEVELPRESSURE_HPA   (1018.00)
 #define SENSOR_BME680_CS_PIN   2   // IO2 — chip select
 #define SENSOR_BME680_DI_PIN   7   // IO7 — MOSI (SDI)  shared bus
 #define SENSOR_BME680_DO_PIN   6   // IO6 — MISO (SDO)  shared bus
 #define SENSOR_BME680_CLK_PIN  5   // IO5 — clock       shared bus
+
+// ── Sensor calibration ─────────────────────────────────────────────────────
+// Two-point linear calibration: corrected = raw * slope + offset, with
+// slope/offset derived at startup from two (raw, reference) points per sensor.
+// Defaults of (0,0)/(1,1) give slope=1, offset=0 — i.e. no correction.
+// To calibrate: read the sensor's raw value at two known reference temperatures
+// (e.g. ice water 0.0°C and boiling water 100.0°C) and set POINT1/POINT2 to
+// (raw_at_point, true_temp_at_point) for each.
+
+// DS18B20 — one point pair per array slot (matches OneWire enumeration order, up to SENSOR_MAXIMUM)
+#define SENSOR_DS_CAL_POINT1_RAW { 0.0, 0.0, 0.0, 0.0, 0.0 }
+#define SENSOR_DS_CAL_POINT1_REF { 0.0, 0.0, 0.0, 0.0, 0.0 }
+#define SENSOR_DS_CAL_POINT2_RAW { 1.0, 1.0, 1.0, 1.0, 1.0 }
+#define SENSOR_DS_CAL_POINT2_REF { 1.0, 1.0, 1.0, 1.0, 1.0 }
+
+// MAX31865 (PT1000/PT100)
+#define SENSOR_PT100X_CAL_POINT1_RAW 0.0
+#define SENSOR_PT100X_CAL_POINT1_REF 0.0
+#define SENSOR_PT100X_CAL_POINT2_RAW 1.0
+#define SENSOR_PT100X_CAL_POINT2_REF 1.0
+
+// BME680 — defaults reproduce the previous fixed -2.0°C offset behaviour
+#define SENSOR_BME680_CAL_POINT1_RAW 0.0
+#define SENSOR_BME680_CAL_POINT1_REF -2.0
+#define SENSOR_BME680_CAL_POINT2_RAW 1.0
+#define SENSOR_BME680_CAL_POINT2_REF -1.0
 
 // I2C config (OLEDs + PCF8574)
 #define I2C_SDA_PIN 23   // IO23

@@ -179,6 +179,12 @@ DeviceAddress sensorAddresses[SENSOR_MAXIMUM];
 float temperatures[SENSOR_MAXIMUM] = { NAN, NAN, NAN, NAN, NAN };
 unsigned long lastSensorReadTime = 0;
 
+// Sensor calibration — slope/offset computed once at startup from two-point config (see config_example.h)
+float dsCalSlope[SENSOR_MAXIMUM];
+float dsCalOffset[SENSOR_MAXIMUM];
+float pt100xCalSlope, pt100xCalOffset;
+float bme680CalSlope, bme680CalOffset;
+
 // ─── Induction cooker class ───────────────────────────────────────────────────
 
 class induction {
@@ -583,6 +589,28 @@ void setGPIO5(bool on) {
 
 // ─── Sensors ──────────────────────────────────────────────────────────────────
 
+// Derives slope/offset from two (raw, reference) calibration points: corrected = raw * slope + offset
+void computeCalibration(float raw1, float ref1, float raw2, float ref2, float &slope, float &offset) {
+  slope = (ref2 - ref1) / (raw2 - raw1);
+  offset = ref1 - slope * raw1;
+}
+
+void setup_sensor_calibration() {
+  const float dsRaw1[SENSOR_MAXIMUM] = SENSOR_DS_CAL_POINT1_RAW;
+  const float dsRef1[SENSOR_MAXIMUM] = SENSOR_DS_CAL_POINT1_REF;
+  const float dsRaw2[SENSOR_MAXIMUM] = SENSOR_DS_CAL_POINT2_RAW;
+  const float dsRef2[SENSOR_MAXIMUM] = SENSOR_DS_CAL_POINT2_REF;
+  for (int i = 0; i < SENSOR_MAXIMUM; i++) {
+    computeCalibration(dsRaw1[i], dsRef1[i], dsRaw2[i], dsRef2[i], dsCalSlope[i], dsCalOffset[i]);
+  }
+  computeCalibration(SENSOR_PT100X_CAL_POINT1_RAW, SENSOR_PT100X_CAL_POINT1_REF,
+                      SENSOR_PT100X_CAL_POINT2_RAW, SENSOR_PT100X_CAL_POINT2_REF,
+                      pt100xCalSlope, pt100xCalOffset);
+  computeCalibration(SENSOR_BME680_CAL_POINT1_RAW, SENSOR_BME680_CAL_POINT1_REF,
+                      SENSOR_BME680_CAL_POINT2_RAW, SENSOR_BME680_CAL_POINT2_REF,
+                      bme680CalSlope, bme680CalOffset);
+}
+
 int setup_temp_sensors() {
   sensorlist.begin();
   sensorlist.setResolution(SENSOR_RESOLUTION);
@@ -635,13 +663,13 @@ void temperature_read() {
   for (int i = 0; i < ds_count; i++) {
     float reading = sensorlist.getTempCByIndex(i);
     if (reading != DEVICE_DISCONNECTED_C) {
-      temperatures[i] = reading;
+      temperatures[i] = reading * dsCalSlope[i] + dsCalOffset[i];
       if (i == PID_SENSOR_INDEX) lastSensorReadTime = millis();
     }
   }
 
-  if (pt100x_found)  temperatures[idx++] = pt100x.temperature(SENSOR_PT100X_R_NOM, SENSOR_PT100X_R_REF);
-  if (bme680_found && bme680.performReading())  temperatures[idx++] = bme680.temperature - SENSOR_BME680_OFFSET;
+  if (pt100x_found)  temperatures[idx++] = pt100x.temperature(SENSOR_PT100X_R_NOM, SENSOR_PT100X_R_REF) * pt100xCalSlope + pt100xCalOffset;
+  if (bme680_found && bme680.performReading())  temperatures[idx++] = bme680.temperature * bme680CalSlope + bme680CalOffset;
 
   if (numberOfDevices > PID_SENSOR_INDEX)
     PID_Input = temperatures[PID_SENSOR_INDEX];
@@ -1068,6 +1096,7 @@ void setup() {
 
   // Sensors
   display_writex(display, 5, "Sensors...", false);
+  setup_sensor_calibration();
   counter = 0;
   while (setup_temp_sensors() == 0 && counter++ < 3) {
 #if SERIAL_ENABLE
