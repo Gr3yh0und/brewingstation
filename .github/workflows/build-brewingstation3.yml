@@ -1,0 +1,48 @@
+name: Build brewingstation3
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'brewingstation3/**'
+      - '.github/workflows/build-brewingstation3.yml'
+  pull_request:
+    paths:
+      - 'brewingstation3/**'
+      - '.github/workflows/build-brewingstation3.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: [esp32c6, esp32c6_debug]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Provide local config.h from example
+        run: cp include/config_example.h include/config.h
+        working-directory: brewingstation3
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: pio-${{ matrix.env }}-${{ hashFiles('brewingstation3/platformio.ini') }}
+          restore-keys: |
+            pio-${{ matrix.env }}-
+
+      - name: Build (${{ matrix.env }})
+        run: pio run -e ${{ matrix.env }}
+        working-directory: brewingstation3
