@@ -133,7 +133,7 @@ PCF8574_PIN_LED_100     P5
 ## Pending Work (long-term backlog)
 
 ### Hardware / PCB impact (decide before PCB is finalised)
-- [ ] **Buzzer firmware** — IO22 + BZ1 + Q1 + R8 placed in schematic; `BUZZER_PIN 22` defined; firmware driver (LEDC PWM tone + beep helpers) not yet written
+- [x] **Buzzer firmware** — `setup_buzzer()` + `buzzerBeep()`/`buzzerAlarm()` via LEDC (`ledcAttach`/`ledcWriteTone`) in `src/main.cpp`. `buzzerBeep()` on brew timer expiry, `buzzerAlarm()` (triple beep) on `safetyShutdown()`. Tunable via `BUZZER_FREQ_HZ` / `BUZZER_ALARM_FREQ_HZ` / `BUZZER_BEEP_MS` in `config.h`.
 - [x] **Multiple MAX31865 sensors** — deliberately dropped; single MAX31865 only
 
 ### Firmware only

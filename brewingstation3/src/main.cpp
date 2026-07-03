@@ -37,6 +37,8 @@ void setLED(int value);
 void ledEmergencyBlink();
 void relay_write_mqtt();
 void gpio5_write_mqtt();
+void buzzerAlarm();
+void buzzerBeep();
 
 // Feature toggles — use 0/1 so #if directives work correctly
 #define SERIAL_ENABLE  0
@@ -335,11 +337,12 @@ bool isSensorHealthy() {
 
 // Cut induction power and disable PID. Called on any safety event.
 void safetyShutdown(const char *reason) {
-  ledEmergencyBlink();
   inductionCooker.newPower = 0;
   inductionCooker.Update();
   setLED(0);
   PID_state = false;
+  ledEmergencyBlink();
+  buzzerAlarm();
   char msg[80];
   snprintf(msg, sizeof(msg), "SAFETY SHUTDOWN: %s", reason);
   syslog.log(LOG_CRIT, msg);
@@ -381,6 +384,7 @@ void display_update() {
     unsigned long rem = timerRemainingMs();
     if (timerRunning && rem == 0) {
       timerRunning = false;  // expired
+      buzzerBeep();
       syslog.log(LOG_INFO, "Brew timer expired");
     }
     strcpy(row1_label, "Tmr");
@@ -537,6 +541,31 @@ void ledEmergencyBlink() {
   for (int i = 0; i < 5; i++) {
     setAllLEDs(true);  delay(80);
     setAllLEDs(false); delay(80);
+  }
+}
+
+// ─── Buzzer (piezo, LEDC PWM tone) ────────────────────────────────────────────
+
+void setup_buzzer() {
+  ledcAttach(BUZZER_PIN, BUZZER_FREQ_HZ, 8);
+}
+
+void buzzerTone(unsigned int freq_hz, unsigned int duration_ms) {
+  ledcWriteTone(BUZZER_PIN, freq_hz);
+  delay(duration_ms);
+  ledcWriteTone(BUZZER_PIN, 0);
+}
+
+// Single short confirmation beep — brew timer / step complete
+void buzzerBeep() {
+  buzzerTone(BUZZER_FREQ_HZ, BUZZER_BEEP_MS);
+}
+
+// Rapid triple beep — safety shutdown
+void buzzerAlarm() {
+  for (int i = 0; i < 3; i++) {
+    buzzerTone(BUZZER_ALARM_FREQ_HZ, BUZZER_BEEP_MS);
+    delay(BUZZER_BEEP_MS);
   }
 }
 
@@ -948,6 +977,7 @@ void setup() {
   pinMode(BUTTON_PIN, INPUT);
   pinMode(RELAY_PIN, OUTPUT); digitalWrite(RELAY_PIN, LOW);
   pinMode(GPIO_EXT_PIN, OUTPUT); digitalWrite(GPIO_EXT_PIN, LOW);
+  setup_buzzer();
 
   // PCF8574 LED expander — all outputs HIGH (LEDs off, open-drain active-LOW)
   if (!ledExpander.begin()) {

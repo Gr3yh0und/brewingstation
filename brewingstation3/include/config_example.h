@@ -75,6 +75,9 @@
 #define RELAY_PIN 21               // IO21 — general-purpose relay (pump / Rührwerk), direct 3V3
 #define GPIO_EXT_PIN 10            // IO10 — spare output (J2 connector removed; wire directly if needed)
 #define BUZZER_PIN 0               // IO0 — passive piezo buzzer via MMBT2222A NPN driver; PWM via LEDC
+#define BUZZER_FREQ_HZ       2000  // step-complete tone (Hz)
+#define BUZZER_ALARM_FREQ_HZ 3000  // safety alarm tone (Hz)
+#define BUZZER_BEEP_MS        150  // beep on-duration (ms)
 #define INDUCTION_FAN_DELAY 60000  // Fan cooldown after power-off (ms); factory default 120000
 #define INDUCTION_MQTT_STATUS   "induction"
 #define INDUCTION_MQTT_COMMANDS "induction/set"
