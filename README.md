@@ -15,11 +15,10 @@ Credit: the GGM IDS2 induction cooktop's RS232/serial protocol — pulse timings
 
 | Folder | Status | Board | Build system | Notes |
 |---|---|---|---|---|
-| [brewingstation](brewingstation/) | V1 | ESP32 | Arduino IDE (`.ino`) or PlatformIO | Breadboard prototype. Documented in its own [README](brewingstation/README.md), includes Fritzing schematic and gerbers. |
-| [brewingstation2](brewingstation2/) | V1, custom PCB | DOIT ESP32 DEVKIT V1 | Arduino IDE (`.ino`) or PlatformIO | Same firmware as `brewingstation` (v1.13), fabricated 2-layer PCB instead of a breadboard. See [README](brewingstation2/README.md). |
+| [brewingstation](brewingstation/) | V1 | ESP32 (DOIT ESP32 DEVKIT V1) | Arduino IDE (`.ino`) or PlatformIO | One firmware, two hardware variants: [breadboard](brewingstation/hardware/breadboard/) and [fabricated PCB](brewingstation/hardware/pcb/). Documented in its own [README](brewingstation/README.md). |
 | [brewingstation3](brewingstation3/) | **WIP** | ESP32-C6-WROOM-1U | PlatformIO | Full rewrite: PID mash control, multi-sensor support, safety shutdowns, brew timer, KiCad schematic, 3D-printable case. See [README](brewingstation3/README.md), [HARDWARE.md](brewingstation3/HARDWARE.md), [BOM.md](brewingstation3/BOM.md), [CASE.md](brewingstation3/CASE.md). |
 
-`brewingstation`/`brewingstation2` each carry a `platformio.ini` (`src_dir = .`) alongside their `.ino`, so both PlatformIO and the Arduino IDE build from the same source file — pick whichever toolchain you prefer.
+`brewingstation` carries a `platformio.ini` (`src_dir = .`) alongside its `.ino`, so both PlatformIO and the Arduino IDE build from the same source file — pick whichever toolchain you prefer.
 
 All generations share the same core idea: control the GGM IDS2 induction cooktop over its proprietary serial protocol, read temperature from DS18B20/PT100/PT1000/BME sensors, drive a couple of OLED displays and status LEDs, and talk to CraftBeerPi over MQTT.
 
@@ -33,7 +32,7 @@ Each own-project folder is self-contained with its own README and config. In gen
 2. Copy `config_example.h` (or `include/config_example.h` for `brewingstation3`) to `config.h` and fill in your WiFi/MQTT/OTA settings. `config.h` is gitignored — never commit real credentials.
 3. Build with PlatformIO (`pio run`) or open the `.ino` directly in the Arduino IDE — see that folder's README for board-specific notes.
 
-All three PlatformIO projects can also be opened together via [brewingstation.code-workspace](brewingstation.code-workspace) (VS Code multi-root workspace).
+The whole repo can also be opened as a single VS Code workspace via [brewingstation.code-workspace](brewingstation.code-workspace).
 
 ## Testing
 

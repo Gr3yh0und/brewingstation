@@ -1,12 +1,12 @@
-# Brewing Station (V1) — Breadboard
+# Brewing Station (V1)
 
-Automated beer brewing temperature controller, breadboard prototype. Reads temperature from multiple sensors, controls a GGM IDS2 induction cooker via a proprietary serial protocol, and runs a PID loop to hold a target mash temperature. Integrates with CraftBeerPi 3 and 4 via MQTT.
+Automated beer brewing temperature controller. Reads temperature from multiple sensors, controls a GGM IDS2 induction cooker via a proprietary serial protocol, and runs a PID loop to hold a target mash temperature. Integrates with CraftBeerPi 3 and 4 via MQTT.
 
 The idea: a "remote hands" station for CraftBeerPi with a local interface, so it also works standalone without a Pi — e.g. for manual-temperature-control outdoor cooking.
 
-**MCU:** ESP32
+**MCU:** ESP32 (DOIT ESP32 DEVKIT V1)
 **Toolchain:** Arduino IDE or PlatformIO (see [platformio.ini](platformio.ini))
-**Custom-PCB variant:** [brewingstation2](../brewingstation2) — same firmware, fabricated 2-layer PCB instead of this breadboard
+**Hardware variants:** one firmware, two builds — [breadboard prototype](hardware/breadboard/) and a [fabricated 2-layer PCB](hardware/pcb/) (see [Hardware Variants](#hardware-variants) below)
 **Successor:** [brewingstation3](../brewingstation3) — full rewrite on ESP32-C6 with safety shutdowns, brew timer, and a printable case
 
 ---
@@ -23,24 +23,55 @@ Tested with both CraftBeerPi 3 and 4 — the MQTT API is identical between the t
 
 | Component | Interface | Purpose |
 |---|---|---|
-| DS18B20 (×2) | OneWire | Mash temperature |
+| DS18B20 (×2–3) | OneWire | Mash temperature — breadboard build uses 2, PCB build's schematic shows 3 |
 | MAX31865 (PT1000) | Software SPI | High-accuracy RTD temperature |
 | BME280 | Software SPI | Ambient temperature / humidity / pressure |
 | GGM IDS2 induction cooker | 3-wire serial | Heat source |
 | 2× SSD1306 OLED 128×64 | I2C, different addresses | Temperature + status display |
 | Buttons + LEDs | GPIO | Manual power control (aluminium switches with integrated LEDs) |
 
+The firmware detects sensors at runtime and adapts — the same sketch runs unmodified on either hardware variant, as long as `config.h` pin assignments match the board you're using.
+
 ---
 
-## Design Files
+## Hardware Variants
+
+Both variants run the exact same firmware (`brewingstation.ino`) — the only difference is the physical build.
+
+| Aspect | Breadboard | PCB |
+|---|---|---|
+| Form factor | Breadboard prototype | Custom fabricated 2-layer PCB |
+| Level shifter | Not shown | Present (3.3V ↔ 5V) |
+| DS18B20 count | 2 (config default) | 3 (shown in schematic) |
+| Expansion connectors | None | PPump, PJump, PExt, GPIOs |
+| Design files | [hardware/breadboard/](hardware/breadboard/) | [hardware/pcb/](hardware/pcb/) |
+
+### Breadboard design files
 
 | File | Description |
 |---|---|
 | `brewingstation.fzz` | Fritzing project |
 | `brewingstation_breadboard.png` | Breadboard wiring view |
 | `brewingstation_schematics.png` | Schematic / circuit diagram |
-| `brewingstation_pcb.png` | PCB layout |
+| `brewingstation_pcb.png` | PCB layout (Fritzing-generated) |
 | `gerber_pcb.zip` | Gerber files for PCB fabrication |
+
+### PCB design files
+
+| File | Description |
+|---|---|
+| `brewingstation2.fzz` | Fritzing project (original) |
+| `brewingstation2_updated.fzz` | Fritzing project (revised PCB layout) |
+| `brewingstation2_Steckplatine.png` | Breadboard wiring view |
+| `brewingstation2_Schaltplan.png` | Schematic / circuit diagram |
+| `brewingstation2_Leiterplatte.png` | PCB layout (2-layer, "BREWSTATION" silkscreen) |
+| `gerber.zip` | Gerber files for PCB fabrication |
+
+The `_updated.fzz` reflects at least one PCB revision after initial design — use the gerbers from the latest revision for fabrication.
+
+### Notable: Level Shifter (PCB variant)
+
+The PCB schematic includes a logic level converter (3.3V ↔ 5V), bridging the ESP32's 3.3V GPIO levels to the 5V signalling required by the induction cooker serial line and/or relay module.
 
 ---
 
@@ -95,15 +126,3 @@ This is the earliest surviving generation of the project — some functionality 
 - Sensor handling (no runtime detection/calibration — see [brewingstation3](../brewingstation3) for that)
 - Humidity and pressure MQTT topics (BME280 reads them, but only temperature is published)
 - Brew timers / mash-step display (also needs CraftBeerPi-side adaptations)
-
-## Breadboard view
-
-![breadboard](brewingstation_breadboard.png)
-
-## Schematics
-
-![schematics](brewingstation_schematics.png)
-
-## Fritzing PCB / Gerber
-
-![pcb](brewingstation_pcb.png)
