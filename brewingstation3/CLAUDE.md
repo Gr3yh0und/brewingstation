@@ -189,7 +189,7 @@ KiCad 10 schematic in `kicad/`. **`wire_schematic.py` is the canonical generator
 
 ## Rules for Claude
 
-- Only edit files in this `brewingstation3/` folder. The legacy `brewingstation/` folder (V1 firmware, both breadboard and PCB hardware variants) is read-only reference at most.
+- Default to editing only files in this `brewingstation3/` folder. `brewingstation/` (V1 firmware, both breadboard and PCB hardware variants) is a separate, still-functional project — bug fixes and doc updates there are fine when asked, but don't restructure its architecture or backport v3 patterns into it without being asked; it's frozen in design, not in maintenance.
 - The canonical firmware source is `src/main.cpp`. Do not recreate or edit any `.ino` file.
 - All library changes go in `platformio.ini`, not installed manually.
 - Keep `include/config_example.h` free of secrets — it is committed. Secrets live in `include/config.h` (gitignored).
