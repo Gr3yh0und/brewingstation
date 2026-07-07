@@ -142,6 +142,9 @@ PCF8574_PIN_LED_100     P5
 - [x] **Buzzer firmware** — `setup_buzzer()` + `buzzerBeep()`/`buzzerAlarm()` via LEDC (`ledcAttach`/`ledcWriteTone`) in `src/main.cpp`. `buzzerBeep()` on brew timer expiry, `buzzerAlarm()` (triple beep) on `safetyShutdown()`. Tunable via `BUZZER_FREQ_HZ` / `BUZZER_ALARM_FREQ_HZ` / `BUZZER_BEEP_MS` in `config.h`.
 - [x] **Multiple MAX31865 sensors** — deliberately dropped; single MAX31865 only
 
+### Post-assembly validation (needs the physical board — not yet soldered)
+- [ ] OTA update workflow: verify `ArduinoOTA` end-to-end on real hardware once assembled — flash over LAN, confirm reboot into new firmware, confirm `OTA_PASSWORD` in `config.h` is a real password (not the `"change-me"` placeholder default) before relying on it. Work through this together to establish a repeatable OTA workflow, not just a one-off test.
+
 ### Firmware only
 - [x] Sensor calibration: two-point linear calibration (`corrected = raw * slope + offset`) computed at startup from config-defined (raw, reference) point pairs. `computeCalibration()` + `setup_sensor_calibration()` in `src/main.cpp`; per-sensor points (DS18B20 array, MAX31865, BME680) in `config.h` / `config_example.h` as `SENSOR_{DS,PT100X,BME680}_CAL_POINT{1,2}_{RAW,REF}`. Not yet persisted to flash — depends on the LittleFS config-persistence item below.
 - [ ] WiFi setup via captive portal (WiFiManager)
