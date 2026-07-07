@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Extracted more hardware-independent logic into `pure_logic.h` for native unit
+  testing: induction power→PWM-level math (`computePowerLevel`), the RX pulse
+  classifier and frame decoder (`classifyPulse`/`decodeErrorCode`), the brew
+  timer as a testable state machine (`BrewTimerState`), safety predicates
+  (`sensorIsHealthy`/`isThermalRunaway`), and display row-1 formatting
+  (`computeRow1Display`). 31 new tests (45 total). No behavior change.
+
 ## [3.0.0-alpha.2] - 2026-07-07
 
 ### Fixed

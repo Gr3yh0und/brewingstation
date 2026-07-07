@@ -116,11 +116,9 @@ bool display_toggle = true;
 int lastButtonBucket = 0;
 unsigned long lastButtonChange = 0;
 
-// Induction cooker serial protocol timing constants
-const int SIGNAL_HIGH     = 5120;
-const int SIGNAL_HIGH_TOL = 1500;
-const int SIGNAL_LOW      = 1280;
-const int SIGNAL_LOW_TOL  = 500;
+// Induction cooker serial protocol timing constants — SIGNAL_HIGH/LOW(_TOL) live
+// in pure_logic.h (shared with the testable pulse classifier); these two are only
+// used for shaping the outgoing start pulse and aren't part of that logic.
 const int SIGNAL_START    = 25;
 const int SIGNAL_WAIT     = 10;
 
@@ -168,25 +166,19 @@ unsigned long relayTimerEndMs = 0;  // 0 = no active timer
 bool gpio5State           = false;
 unsigned long gpio5TimerEndMs = 0;
 
-// Brew timer
-unsigned long timerDurationMs = 0;
-unsigned long timerEndMs      = 0;
-unsigned long timerPauseRemMs = 0;
-bool timerRunning = false;
-bool timerPaused  = false;
+// Brew timer — state machine lives in pure_logic.h (BrewTimerState) so it's
+// unit-testable, including wraparound, with an injected `now`.
+BrewTimerState brewTimer;
 
 unsigned long timerRemainingMs() {
-  if (timerPaused)  return timerPauseRemMs;
-  if (timerRunning) return deadlineReached(millis(), timerEndMs) ? 0 : timerEndMs - millis();
-  return 0;
+  return brewTimerRemainingMs(brewTimer, millis());
 }
 
 // Detects brew-timer expiry independent of the display refresh cadence — called every
 // loop() iteration so expiry can't be delayed by DISPLAY_FREQUENCY, and status publishes
 // (timer_write_mqtt) never observe a stale "running:1, remaining:0" window.
 void checkTimerExpiry() {
-  if (timerRunning && timerRemainingMs() == 0) {
-    timerRunning = false;
+  if (brewTimerCheckExpiry(brewTimer, millis())) {
     buzzerBeep();
     syslog.log(LOG_INFO, "Brew timer expired");
   }
@@ -278,7 +270,6 @@ public:
     power = newPower;
     timeTurnedoff = 0;
     isInduon = true;
-    long difference = 0;
 
     if (power == 0) {
       CMD_CUR = 0;
@@ -287,16 +278,10 @@ public:
       powerLow = powerHigh = 0;
       return;
     }
-    for (int i = 1; i < 6; i++) {
-      if (power <= PWR_STEPS[i]) { CMD_CUR = i; difference = PWR_STEPS[i] - power; break; }
-    }
-    if (difference != 0) {
-      powerLow  = powerSampletime * difference / 20L;
-      powerHigh = powerSampletime - powerLow;
-    } else {
-      powerHigh = powerSampletime;
-      powerLow  = 0;
-    }
+    PowerLevel lvl = computePowerLevel(power, powerSampletime, PWR_STEPS);
+    CMD_CUR   = lvl.cmdIndex;
+    powerHigh = lvl.powerHigh;
+    powerLow  = lvl.powerLow;
   }
 
   void sendCommand(const int command[33]) {
@@ -314,18 +299,17 @@ public:
     bool ishigh = digitalRead(PIN_INTERRUPT);
     unsigned long newInterrupt = micros();
     long signalTime = newInterrupt - lastInterrupt;
-    if (signalTime <= 10) return;
+    PulseType pulse = classifyPulse(signalTime);
+    if (pulse == PulseType::NOISE) return;
     if (ishigh) { lastInterrupt = newInterrupt; return; }
     if (!inputStarted) {
-      if (signalTime < 35000L && signalTime > 15000L) { inputStarted = true; inputCurrent = 0; }
+      if (pulse == PulseType::START) { inputStarted = true; inputCurrent = 0; }
     } else if (inputCurrent < 33) {
-      if (signalTime < (SIGNAL_HIGH + SIGNAL_HIGH_TOL) && signalTime > (SIGNAL_HIGH - SIGNAL_HIGH_TOL))
-        inputBuffer[inputCurrent++] = 1;
-      if (signalTime < (SIGNAL_LOW + SIGNAL_LOW_TOL) && signalTime > (SIGNAL_LOW - SIGNAL_LOW_TOL))
-        inputBuffer[inputCurrent++] = 0;
+      if (pulse == PulseType::BIT_ONE)  inputBuffer[inputCurrent++] = 1;
+      if (pulse == PulseType::BIT_ZERO) inputBuffer[inputCurrent++] = 0;
     } else {
-      // Frame complete — extract 4-bit error code from bits 13-16
-      newError = inputBuffer[13] * 8 + inputBuffer[14] * 4 + inputBuffer[15] * 2 + inputBuffer[16];
+      // Frame complete
+      newError = decodeErrorCode(inputBuffer);
       inputCurrent = 0;
       inputStarted = false;
     }
@@ -347,7 +331,7 @@ void ARDUINO_ISR_ATTR readInputWrap() {
 // ─── Safety ───────────────────────────────────────────────────────────────────
 
 bool isSensorHealthy() {
-  return (numberOfDevices > 0) && (millis() - lastSensorReadTime < (unsigned long)SENSOR_STALE_TIMEOUT_MS);
+  return sensorIsHealthy(millis(), lastSensorReadTime, SENSOR_STALE_TIMEOUT_MS, numberOfDevices);
 }
 
 // Cut induction power and disable PID. Called on any safety event.
@@ -395,22 +379,14 @@ void display_update() {
   // Row 1: brew timer > NTP clock > uptime
   char row1_label[6];
   char row1_value[9];
-  if (timerRunning || timerPaused) {
-    unsigned long rem = timerRemainingMs();
-    strcpy(row1_label, "Tmr");
-    sprintf(row1_value, "%02lu:%02lu", rem / 60000UL, (rem / 1000UL) % 60UL);
-  } else {
-    time_t now; struct tm ti;
+  {
+    time_t now; struct tm ti = {};
     time(&now);
-    if (now > 1000000000UL) {
-      localtime_r(&now, &ti);
-      strcpy(row1_label, "Clk");
-      sprintf(row1_value, "%02d:%02d", ti.tm_hour, ti.tm_min);
-    } else {
-      unsigned long runtime_ms = millis();
-      strcpy(row1_label, "Run");
-      sprintf(row1_value, "%03lu:%02lu", runtime_ms / 60000UL, (runtime_ms / 1000UL) % 60UL);
-    }
+    bool ntpSynced = now > 1000000000UL;
+    if (ntpSynced) localtime_r(&now, &ti);
+    computeRow1Display(brewTimer.running, brewTimer.paused, timerRemainingMs(),
+                        ntpSynced, ti.tm_hour, ti.tm_min, millis(),
+                        row1_label, row1_value);
   }
 
   // Display 1: Row1 / Tgt / Out
@@ -788,27 +764,15 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
 
   // timer/set — {duration: seconds}
   if (strcmp(topic, TOPIC_TIMER_SET) == 0) {
-    timerDurationMs = (unsigned long)doc["duration"] * 1000UL;
-    timerRunning = timerPaused = false;
-    timerEndMs = timerPauseRemMs = 0;
+    brewTimerSet(brewTimer, (unsigned long)doc["duration"] * 1000UL);
   }
 
   // timer/ctl — {cmd: "start"/"pause"/"reset"}
   if (strcmp(topic, TOPIC_TIMER_CTL) == 0) {
     String cmd = doc["cmd"];
-    if (cmd == "start" && timerDurationMs > 0) {
-      unsigned long remaining = timerPaused ? timerPauseRemMs : timerDurationMs;
-      timerEndMs   = millis() + remaining;
-      timerRunning = true;
-      timerPaused  = false;
-    } else if (cmd == "pause" && timerRunning) {
-      timerPauseRemMs = timerRemainingMs();
-      timerRunning    = false;
-      timerPaused     = true;
-    } else if (cmd == "reset") {
-      timerRunning = timerPaused = false;
-      timerEndMs = timerPauseRemMs = 0;
-    }
+    if (cmd == "start")       brewTimerStart(brewTimer, millis());
+    else if (cmd == "pause")  brewTimerPause(brewTimer, millis());
+    else if (cmd == "reset")  brewTimerReset(brewTimer);
   }
 
   // relay/set — {state: "on"/"off"}, optional {duration: seconds} for timed operation
@@ -903,10 +867,10 @@ void pid_write_mqtt() {
 void timer_write_mqtt() {
   JsonDocument doc;
   uint32_t ts = ntpTimestamp();
-  doc["running"]   = timerRunning ? 1 : 0;
-  doc["paused"]    = timerPaused  ? 1 : 0;
-  doc["remaining"] = timerRemainingMs() / 1000UL;
-  doc["duration"]  = timerDurationMs   / 1000UL;
+  doc["running"]   = brewTimer.running ? 1 : 0;
+  doc["paused"]    = brewTimer.paused  ? 1 : 0;
+  doc["remaining"] = timerRemainingMs()      / 1000UL;
+  doc["duration"]  = brewTimer.durationMs    / 1000UL;
   if (ts) doc["ts"] = ts;
   char message[96];
   serializeJson(doc, message);
@@ -1165,8 +1129,8 @@ void loop() {
   }
 
   // Safety: thermal runaway — standalone only; slave mode relies on the cooker's own E3 protection
-  if (deviceMode == MODE_STANDALONE && PID_state && PID_Setpoint > 0
-      && PID_Input > PID_Setpoint + (double)PID_SAFETY_OVERSHOOT) {
+  if (deviceMode == MODE_STANDALONE && PID_state
+      && isThermalRunaway(PID_Input, PID_Setpoint, (double)PID_SAFETY_OVERSHOOT)) {
     char buf[48];
     snprintf(buf, sizeof(buf), "thermal runaway T=%.1f setpoint=%.1f", PID_Input, PID_Setpoint);
     safetyShutdown(buf);
