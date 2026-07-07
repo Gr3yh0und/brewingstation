@@ -90,47 +90,69 @@ jobs:
           (cd "$OUT" && sha256sum * > SHA256SUMS.txt)
           ls -la "$OUT"
 
+      - name: Extract changelog section for this tag
+        run: |
+          set -eu
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          awk -v ver="$TAG" '
+            index($0, "## [" ver "]") == 1 { flag=1; next }
+            /^## \[/ && flag { flag=0 }
+            flag && !/^\[.*\]:/ { print }
+          ' brewingstation3/CHANGELOG.md > changelog-section.md
+          if [ ! -s changelog-section.md ]; then
+            echo "_No CHANGELOG.md entry found for $TAG — add one under \`## [$TAG]\` before releasing._" > changelog-section.md
+          fi
+
+      - name: Build release notes
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          {
+            cat changelog-section.md
+            cat <<BODY
+
+          **⚠️ Work in progress.** This firmware compiles and passes its unit tests, but the hardware has not been assembled — the PCB isn't soldered, nothing has been tested end-to-end, and the 3D-printable case hasn't been printed. Flash and use at your own risk; expect breaking changes between pre-releases.
+
+          Board: **ESP32-C6-WROOM-1U** (ESP32-C6-DevKitC-1-N8).
+
+          ## Flashing
+
+          Easiest: flash the single merged image at offset \`0x0\`:
+
+          \`\`\`sh
+          esptool.py --chip esp32c6 --port <PORT> --baud 921600 write_flash 0x0 brewingstation3-$TAG-merged-flash-image.bin
+          \`\`\`
+
+          Or flash the individual pieces at their normal offsets:
+
+          \`\`\`sh
+          esptool.py --chip esp32c6 --port <PORT> --baud 921600 write_flash \\
+            0x0000  brewingstation3-$TAG-bootloader.bin \\
+            0x8000  brewingstation3-$TAG-partitions.bin \\
+            0x10000 brewingstation3-$TAG-firmware.bin
+          \`\`\`
+
+          OTA updates only need \`*-firmware.bin\`.
+
+          Before first boot, copy \`include/config_example.h\` to \`include/config.h\` in \`brewingstation3/\` and fill in your WiFi/MQTT/OTA settings, then rebuild — the binaries here use placeholder credentials and will not connect to your network as-is.
+
+          ## Assets
+
+          - \`*-merged-flash-image.bin\` — single-file image, flash at \`0x0\`
+          - \`*-bootloader.bin\`, \`*-partitions.bin\`, \`*-firmware.bin\` — individual pieces
+          - \`*-kicad-design.zip\` — KiCad 10 schematic, PCB layout, gerbers, drill file, custom footprints, and preview renders
+          - \`*-case.scad\` — 3D-printable enclosure source (OpenSCAD)
+          - \`SHA256SUMS.txt\` — checksums for everything above
+
+          See [HARDWARE.md](https://github.com/${{ github.repository }}/blob/$TAG/brewingstation3/HARDWARE.md), [BOM.md](https://github.com/${{ github.repository }}/blob/$TAG/brewingstation3/BOM.md), and [CASE.md](https://github.com/${{ github.repository }}/blob/$TAG/brewingstation3/CASE.md) for full details.
+          BODY
+          } > RELEASE_NOTES.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           name: brewingstation3 ${{ github.event.inputs.tag || github.ref_name }}
           prerelease: true
-          body: |
-            **⚠️ Work in progress.** This firmware compiles and passes its unit tests, but the hardware has not been assembled — the PCB isn't soldered, nothing has been tested end-to-end, and the 3D-printable case hasn't been printed. Flash and use at your own risk; expect breaking changes between pre-releases.
-
-            Board: **ESP32-C6-WROOM-1U** (ESP32-C6-DevKitC-1-N8).
-
-            ## Flashing
-
-            Easiest: flash the single merged image at offset `0x0`:
-
-            ```sh
-            esptool.py --chip esp32c6 --port <PORT> --baud 921600 write_flash 0x0 brewingstation3-${{ github.event.inputs.tag || github.ref_name }}-merged-flash-image.bin
-            ```
-
-            Or flash the individual pieces at their normal offsets:
-
-            ```sh
-            esptool.py --chip esp32c6 --port <PORT> --baud 921600 write_flash \
-              0x0000  brewingstation3-${{ github.event.inputs.tag || github.ref_name }}-bootloader.bin \
-              0x8000  brewingstation3-${{ github.event.inputs.tag || github.ref_name }}-partitions.bin \
-              0x10000 brewingstation3-${{ github.event.inputs.tag || github.ref_name }}-firmware.bin
-            ```
-
-            OTA updates only need `*-firmware.bin`.
-
-            Before first boot, copy `include/config_example.h` to `include/config.h` in `brewingstation3/` and fill in your WiFi/MQTT/OTA settings, then rebuild — the binaries here use placeholder credentials and will not connect to your network as-is.
-
-            ## Assets
-
-            - `*-merged-flash-image.bin` — single-file image, flash at `0x0`
-            - `*-bootloader.bin`, `*-partitions.bin`, `*-firmware.bin` — individual pieces
-            - `*-kicad-design.zip` — KiCad 10 schematic, PCB layout, gerbers, drill file, custom footprints, and preview renders
-            - `*-case.scad` — 3D-printable enclosure source (OpenSCAD)
-            - `SHA256SUMS.txt` — checksums for everything above
-
-            See [HARDWARE.md](https://github.com/${{ github.repository }}/blob/${{ github.event.inputs.tag || github.ref_name }}/brewingstation3/HARDWARE.md), [BOM.md](https://github.com/${{ github.repository }}/blob/${{ github.event.inputs.tag || github.ref_name }}/brewingstation3/BOM.md), and [CASE.md](https://github.com/${{ github.repository }}/blob/${{ github.event.inputs.tag || github.ref_name }}/brewingstation3/CASE.md) for full details.
+          body_path: RELEASE_NOTES.md
           files: |
             dist/*
-          generate_release_notes: true
