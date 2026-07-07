@@ -23,6 +23,19 @@ inline int getButtonBucket(int val, int thresholdB1, int thresholdB2, int thresh
   return 0;                              // no press
 }
 
+// Overflow-safe "has this millis()-based deadline been reached" check. A plain
+// `now >= deadline` comparison breaks once `now` wraps past `deadline` (every ~49.7
+// days on a 32-bit millis() counter); subtracting first and casting to signed handles
+// the wraparound correctly as long as the actual elapsed time is under ~24 days.
+//
+// Fixed-width uint32_t (not unsigned long) is deliberate: millis() returns a 32-bit
+// value on the real ESP32 target, but `unsigned long` is 64-bit on the native/host test
+// platform, so a `long`/`unsigned long` version here would never actually wrap when
+// unit-tested — it'd silently test different arithmetic than what runs on-device.
+inline bool deadlineReached(uint32_t now, uint32_t deadline) {
+  return (int32_t)(now - deadline) >= 0;
+}
+
 inline const char* inductionErrorString(uint8_t code) {
   switch (code) {
     case 1: case 2: return "E0:NoPot";

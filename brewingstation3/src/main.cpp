@@ -169,7 +169,7 @@ bool timerPaused  = false;
 
 unsigned long timerRemainingMs() {
   if (timerPaused)  return timerPauseRemMs;
-  if (timerRunning) return (millis() < timerEndMs) ? timerEndMs - millis() : 0;
+  if (timerRunning) return deadlineReached(millis(), timerEndMs) ? 0 : timerEndMs - millis();
   return 0;
 }
 
@@ -234,8 +234,8 @@ public:
     updatePower();
     isRelayon = updateRelay();
     if (isInduon && power > 0) {
-      if (millis() > powerLast + powerSampletime) powerLast = millis();
-      if (millis() > powerLast + powerHigh) {
+      if (deadlineReached(millis(), powerLast + powerSampletime)) powerLast = millis();
+      if (deadlineReached(millis(), powerLast + powerHigh)) {
         sendCommand(CMD[CMD_CUR - 1]);
       } else {
         sendCommand(CMD[CMD_CUR]);
@@ -248,7 +248,7 @@ public:
   bool updateRelay() {
     if (isInduon && !isRelayon) { digitalWrite(PIN_WHITE, HIGH); return true; }
     if (!isInduon && isRelayon) {
-      if (millis() > timeTurnedoff + delayAfteroff) { digitalWrite(PIN_WHITE, LOW); return false; }
+      if (deadlineReached(millis(), timeTurnedoff + delayAfteroff)) { digitalWrite(PIN_WHITE, LOW); return false; }
     }
     return isRelayon;
   }
@@ -289,7 +289,9 @@ public:
     }
   }
 
-  void readInput() {
+  // IRAM_ATTR: called from readInputWrap(), an ISR — must stay resident in IRAM so it's
+  // safe to call while flash cache is disabled (e.g. during OTA writes or NVS commits).
+  void IRAM_ATTR readInput() {
     bool ishigh = digitalRead(PIN_INTERRUPT);
     unsigned long newInterrupt = micros();
     long signalTime = newInterrupt - lastInterrupt;
@@ -297,7 +299,7 @@ public:
     if (ishigh) { lastInterrupt = newInterrupt; return; }
     if (!inputStarted) {
       if (signalTime < 35000L && signalTime > 15000L) { inputStarted = true; inputCurrent = 0; }
-    } else if (inputCurrent < 34) {
+    } else if (inputCurrent < 33) {
       if (signalTime < (SIGNAL_HIGH + SIGNAL_HIGH_TOL) && signalTime > (SIGNAL_HIGH - SIGNAL_HIGH_TOL))
         inputBuffer[inputCurrent++] = 1;
       if (signalTime < (SIGNAL_LOW + SIGNAL_LOW_TOL) && signalTime > (SIGNAL_LOW - SIGNAL_LOW_TOL))
@@ -650,8 +652,19 @@ void temperature_read() {
     }
   }
 
-  if (pt100x_found)  temperatures[idx++] = pt100x.temperature(SENSOR_PT100X_R_NOM, SENSOR_PT100X_R_REF) * pt100xCalSlope + pt100xCalOffset;
-  if (bme680_found && bme680.performReading())  temperatures[idx++] = bme680.temperature * bme680CalSlope + bme680CalOffset;
+  if (pt100x_found) {
+    float reading = pt100x.temperature(SENSOR_PT100X_R_NOM, SENSOR_PT100X_R_REF);
+    if (reading != PT100X_NO_SENSOR_TEMP) {
+      temperatures[idx] = reading * pt100xCalSlope + pt100xCalOffset;
+      if (idx == PID_SENSOR_INDEX) lastSensorReadTime = millis();
+    }
+    idx++;
+  }
+  if (bme680_found && bme680.performReading()) {
+    temperatures[idx] = bme680.temperature * bme680CalSlope + bme680CalOffset;
+    if (idx == PID_SENSOR_INDEX) lastSensorReadTime = millis();
+    idx++;
+  }
 
   if (numberOfDevices > PID_SENSOR_INDEX)
     PID_Input = temperatures[PID_SENSOR_INDEX];
@@ -674,8 +687,10 @@ void setup_induction() {
   pinMode(INDUCTION_PIN_WHITE,  OUTPUT); digitalWrite(INDUCTION_PIN_WHITE, LOW);
   pinMode(INDUCTION_PIN_YELLOW, OUTPUT); digitalWrite(INDUCTION_PIN_YELLOW, HIGH);
   pinMode(INDUCTION_PIN_BLUE,   INPUT_PULLUP);
+  // inductionCooker is already default-constructed at static-init time; no need to
+  // reassign it here — doing so raced the ISR against the copy-assignment of the very
+  // object it reads (attachInterrupt below can fire before the reassignment completes).
   attachInterrupt(digitalPinToInterrupt(INDUCTION_PIN_BLUE), readInputWrap, CHANGE);
-  inductionCooker = induction();
 }
 
 void setup_pid() {
@@ -728,7 +743,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
   }
 
   // induction/cap — {cap: 0-100}
-  if (strcmp(topic, TOPIC_INDUCTION_CAP) == 0) {
+  if (strcmp(topic, TOPIC_INDUCTION_CAP) == 0 && doc["cap"].is<int>()) {
     powerCap = constrain((int)doc["cap"], 0, 100);
   }
 
@@ -738,15 +753,22 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
   }
 
   // pid/setpoint — settable regardless of PID state
-  if (strcmp(topic, TOPIC_PID_SETPOINT) == 0) {
+  if (strcmp(topic, TOPIC_PID_SETPOINT) == 0 && doc["setpoint"].is<double>()) {
     PID_Setpoint = constrain((double)doc["setpoint"], 0.0, (double)PID_SETPOINT_MAX);
   }
 
   if (deviceMode == MODE_STANDALONE) {
-    if (strcmp(topic, TOPIC_PID_RESET) == 0) { Output = 0; }
-    if (strcmp(topic, TOPIC_PID_P) == 0) { PID_P = constrain((double)doc["P"], 0.0, (double)PID_MAX_P); pidTuningsDirty = true; }
-    if (strcmp(topic, TOPIC_PID_I) == 0) { PID_I = constrain((double)doc["I"], 0.0, (double)PID_MAX_I); pidTuningsDirty = true; }
-    if (strcmp(topic, TOPIC_PID_D) == 0) { PID_D = constrain((double)doc["D"], 0.0, (double)PID_MAX_D); pidTuningsDirty = true; }
+    // PID_v1 recomputes Output from its internal outputSum on every Compute(), so just
+    // zeroing Output snaps right back — toggling MANUAL/AUTOMATIC forces Initialize(),
+    // which reseeds outputSum from Output (0) and lastInput from the current PID_Input.
+    if (strcmp(topic, TOPIC_PID_RESET) == 0) {
+      Output = 0;
+      myPID.SetMode(MANUAL);
+      myPID.SetMode(AUTOMATIC);
+    }
+    if (strcmp(topic, TOPIC_PID_P) == 0 && doc["P"].is<double>()) { PID_P = constrain((double)doc["P"], 0.0, (double)PID_MAX_P); pidTuningsDirty = true; }
+    if (strcmp(topic, TOPIC_PID_I) == 0 && doc["I"].is<double>()) { PID_I = constrain((double)doc["I"], 0.0, (double)PID_MAX_I); pidTuningsDirty = true; }
+    if (strcmp(topic, TOPIC_PID_D) == 0 && doc["D"].is<double>()) { PID_D = constrain((double)doc["D"], 0.0, (double)PID_MAX_D); pidTuningsDirty = true; }
   }
 
   // timer/set — {duration: seconds}
@@ -880,7 +902,7 @@ void relay_write_mqtt() {
   JsonDocument doc;
   uint32_t ts = ntpTimestamp();
   doc["state"] = relayState ? 1 : 0;
-  doc["remaining"] = (relayTimerEndMs > 0 && millis() < relayTimerEndMs)
+  doc["remaining"] = (relayTimerEndMs > 0 && !deadlineReached(millis(), relayTimerEndMs))
                      ? (relayTimerEndMs - millis()) / 1000UL : 0;
   if (ts) doc["ts"] = ts;
   char message[96];
@@ -892,7 +914,7 @@ void gpio5_write_mqtt() {
   JsonDocument doc;
   uint32_t ts = ntpTimestamp();
   doc["state"] = gpio5State ? 1 : 0;
-  doc["remaining"] = (gpio5TimerEndMs > 0 && millis() < gpio5TimerEndMs)
+  doc["remaining"] = (gpio5TimerEndMs > 0 && !deadlineReached(millis(), gpio5TimerEndMs))
                      ? (gpio5TimerEndMs - millis()) / 1000UL : 0;
   if (ts) doc["ts"] = ts;
   char message[96];
@@ -942,7 +964,7 @@ void handleButton(int val) {
   lastButtonChange = millis();
   const int powerMap[] = { 0, BUTTON_POWER_B1, BUTTON_POWER_B2, BUTTON_POWER_B3,
                                BUTTON_POWER_B4, BUTTON_POWER_B5, BUTTON_POWER_B6 };
-  inductionCooker.newPower = powerMap[bucket];
+  inductionCooker.newPower = constrain(powerMap[bucket], 0, powerCap);
   inductionCooker.Update();
   if (mqttClient.connected()) induction_write_mqtt();
 #if SERIAL_ENABLE
@@ -1152,14 +1174,14 @@ void loop() {
   }
 
   // Relay timer — auto-off when duration expires
-  if (relayTimerEndMs > 0 && millis() >= relayTimerEndMs) {
+  if (relayTimerEndMs > 0 && deadlineReached(millis(), relayTimerEndMs)) {
     setRelay(false);
     relayTimerEndMs = 0;
     if (mqttClient.connected()) relay_write_mqtt();
   }
 
   // GPIO5 timer — auto-off when duration expires
-  if (gpio5TimerEndMs > 0 && millis() >= gpio5TimerEndMs) {
+  if (gpio5TimerEndMs > 0 && deadlineReached(millis(), gpio5TimerEndMs)) {
     setGPIO5(false);
     gpio5TimerEndMs = 0;
     if (mqttClient.connected()) gpio5_write_mqtt();

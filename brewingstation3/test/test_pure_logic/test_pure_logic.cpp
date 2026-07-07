@@ -76,6 +76,35 @@ void test_induction_error_string_unknown_code() {
   TEST_ASSERT_EQUAL_STRING("Err:???", inductionErrorString(255));
 }
 
+// ─── deadlineReached ────────────────────────────────────────────────────────────
+
+void test_deadline_not_yet_reached() {
+  TEST_ASSERT_FALSE(deadlineReached(999UL, 1000UL));
+}
+
+void test_deadline_reached_exactly() {
+  TEST_ASSERT_TRUE(deadlineReached(1000UL, 1000UL));
+}
+
+void test_deadline_reached_past() {
+  TEST_ASSERT_TRUE(deadlineReached(1001UL, 1000UL));
+}
+
+void test_deadline_wraparound() {
+  // now has wrapped past 0xFFFFFFFF, deadline was set shortly before the wrap.
+  // A naive `now >= deadline` would say "not reached" here (0 < 0xFFFFFFF0) and
+  // never fire; deadlineReached() must still say "reached".
+  unsigned long deadline = 0xFFFFFFF0UL;
+  unsigned long now      = 0x00000010UL;  // 32 ticks after the wrap
+  TEST_ASSERT_TRUE(deadlineReached(now, deadline));
+}
+
+void test_deadline_wraparound_not_yet() {
+  unsigned long deadline = 0xFFFFFFF0UL;
+  unsigned long now      = 0xFFFFFFE0UL;  // before the wrap, before the deadline
+  TEST_ASSERT_FALSE(deadlineReached(now, deadline));
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
   RUN_TEST(test_calibration_identity);
@@ -87,5 +116,10 @@ int main(int argc, char **argv) {
   RUN_TEST(test_button_b6_shorted_to_ground);
   RUN_TEST(test_induction_error_string_known_codes);
   RUN_TEST(test_induction_error_string_unknown_code);
+  RUN_TEST(test_deadline_not_yet_reached);
+  RUN_TEST(test_deadline_reached_exactly);
+  RUN_TEST(test_deadline_reached_past);
+  RUN_TEST(test_deadline_wraparound);
+  RUN_TEST(test_deadline_wraparound_not_yet);
   return UNITY_END();
 }

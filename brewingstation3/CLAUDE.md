@@ -155,6 +155,7 @@ PCF8574_PIN_LED_100     P5
 - [ ] Home Assistant MQTT auto-discovery
 
 ### Done / no longer needed
+- [x] Code review bug pass (8 bugs fixed in `src/main.cpp`): OOB write in the induction RX ISR (`inputBuffer` off-by-one), sensor-staleness tracking ignoring non-DS18B20 PID sensors, `pid/reset` not actually resetting PID_v1's integral term, malformed-MQTT-payload validation (`induction/cap`, `pid/setpoint`, `pid/p`/`i`/`d`), panel buttons bypassing `powerCap`, `millis()` wraparound in all deadline comparisons (new `deadlineReached()` helper in `pure_logic.h`, tested), ISR calling a non-`IRAM_ATTR` function, and a pointless reassignment racing the ISR in `setup_induction()`.
 - [x] BME280 → BME680 sensor switch (firmware + schematic + BOM + config)
 - [x] Screw terminal connector list in README
 - [x] Free GPIO expansion headers (J10 power tap, J11 UART, J12 GPIO — IO15/IO22/IO23)
