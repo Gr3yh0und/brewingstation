@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.0-alpha.2] - 2026-07-07
+
 ### Fixed
 - 8 bugs from a full code review: out-of-bounds write in
   `induction::readInput()`, `pid/reset` not actually resetting PID_v1's
@@ -26,6 +28,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - OTA update workflow and a full 10-stage post-assembly bring-up checklist
   (power-on, sensors, induction cooker, buttons/LEDs, PID tuning, safety
   systems, buzzer, timer/MQTT control, case fit, soak test) to the backlog.
+- Release notes are now sourced from this changelog instead of
+  auto-generated commit/PR lists.
 
 ### Removed
 - Stray tracked KiCad tooling backup files (`.mcp-backups/`,
@@ -49,5 +53,6 @@ nothing tested end-to-end).
 - Firmware explicitly marked as work-in-progress (`VERSION` string,
   README/CLAUDE.md notes) to signal untested hardware status.
 
-[Unreleased]: https://github.com/Gr3yh0und/brewingstation/compare/3.0.0-alpha.1...HEAD
+[Unreleased]: https://github.com/Gr3yh0und/brewingstation/compare/3.0.0-alpha.2...HEAD
+[3.0.0-alpha.2]: https://github.com/Gr3yh0und/brewingstation/compare/3.0.0-alpha.1...3.0.0-alpha.2
 [3.0.0-alpha.1]: https://github.com/Gr3yh0und/brewingstation/releases/tag/3.0.0-alpha.1
