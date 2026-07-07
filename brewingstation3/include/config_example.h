@@ -2,11 +2,16 @@
 #define SERIAL_BAUDRATE 115200
 
 // Network Configuration
+// Wi-Fi credentials are NOT configured here — WiFiManager provisions them via its own
+// captive portal (opens automatically on first boot / failed connect, or by holding any
+// panel button for ~2s at power-on) and stores them in the ESP32's own NVS.
 #define HOSTNAME "ESP-BREWING"
-#define SSID_NAME "SSID"
-#define SSID_PASSWORD "PASSWORD"
 #define SERVER_ADDRESS "192.168.0.100"
 #define OTA_UPDATE_PORT 8266
+// OTA_PASSWORD / MQTT_ROOT_PATH / MQTT_DEVICE below are first-boot defaults only — they seed
+// cfgOtaPassword/cfgMqttRoot/cfgMqttDevice in main.cpp, which the same WiFiManager portal can
+// then override at runtime (persisted to /netconfig.json). Change these if you want different
+// out-of-the-box values; there's no need to touch them once a device has been provisioned.
 #define OTA_PASSWORD    "change-me"  // set a strong password; anyone on the LAN can push firmware otherwise
 #define MQTT_ROOT_PATH "cave"
 #define MQTT_DEVICE "brewery"
@@ -16,7 +21,9 @@
 #define SYSLOG_PORT 514
 #define SYSLOG_APP_NAME HOSTNAME
 
-// MQTT connection settings — set BROKER_USER/PASSWORD when the broker is configured for auth
+// MQTT connection settings — set BROKER_USER/PASSWORD when the broker is configured for auth.
+// BROKER_ADDRESS is only the first-boot default (see cfgMqttBroker above); the WiFiManager
+// portal can override it at runtime.
 #define BROKER_ADDRESS  SERVER_ADDRESS
 #define BROKER_PORT     1883
 #define BROKER_USER     NULL

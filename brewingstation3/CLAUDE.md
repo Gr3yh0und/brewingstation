@@ -62,7 +62,7 @@ pio run -e esp32c6 -t upload
 pio device monitor
 ```
 
-**First-time setup:** Copy `include/config_example.h` → `include/config.h` and fill in WiFi credentials, MQTT broker IP, OTA password.
+**First-time setup:** Copy `include/config_example.h` → `include/config.h` and fill in the MQTT broker IP and OTA password (these seed the runtime-configurable defaults — see below). WiFi credentials are *not* set in `config.h`; provision them via the WiFiManager captive portal on first boot instead.
 
 ---
 
@@ -81,6 +81,12 @@ pio device monitor
 **I2C bus:** SDA=IO23, SCL=IO22. Both OLEDs (0x3C, 0x3D) and PCF8574 (0x20) share this bus. `Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN)` is called once in setup() — do not add a second call.
 
 **USB-CDC:** The ESP32-C6 has built-in USB-CDC. `Serial` works over USB without a CH343/CP2102. `-DARDUINO_USB_CDC_ON_BOOT=1` and `-DARDUINO_USB_MODE=1` in `platformio.ini` enable this.
+
+**WiFiManager provisioning:** `tzapu/WiFiManager` replaces the old hardcoded `WiFi.begin(ssid, password)`. It uses the ESP32's own NVS-stored Wi-Fi credentials when present; otherwise (or on connect failure, or if any panel button is held for ~2s at power-on) it opens a captive-portal AP so the device can be provisioned over its own WiFi network without a reflash. The portal's custom fields also cover the MQTT broker address, MQTT topic prefix (`cfgMqttRoot`/`cfgMqttDevice`), and OTA password — these are seeded from `config.h` on first boot and then persisted to `/netconfig.json` (LittleFS) whenever the portal form is submitted, via `loadNetConfig()`/`saveNetConfig()` in `src/main.cpp`. Because the topic prefix is now runtime-configurable, all 13 subscribe-side MQTT topics (`TOPIC_*`) are runtime `char` buffers built once in `setup()` by `computeSubscribeTopics()`, not compile-time macros — keep this in mind if adding a new subscribed topic.
+
+**Two-tier LittleFS persistence:** brew-session tuning (`powerCap`/`deviceMode`/PID state+tunings+setpoint, set via MQTT) lives in `/settings.json`; network/identity config (broker/topic-prefix/OTA password, set via the WiFiManager portal) lives in `/netconfig.json`. Kept as two separate files/functions (`loadSettings`/`saveSettings` vs. `loadNetConfig`/`saveNetConfig`) since they're written from different code paths (MQTT callback vs. portal save-callback) and loaded at different points in `setup()` (`loadNetConfig()` must run before Wi-Fi connects; `loadSettings()` must run after `setup_pid()`, which would otherwise stomp `PID_Setpoint`).
+
+**Partition table:** `default_8MB.csv` (dual ~3.19MB OTA app slots + 1.5MB LittleFS) — the board is the N8 (8MB flash) module, but the project was left on PlatformIO's stock 4MB `default.csv` until the WiFiManager work needed the extra headroom. If flash usage ever gets tight again, this is already the largest dual-OTA-slot table available; the fallback would be dropping one OTA slot (`huge_app.csv`-style) rather than shrinking LittleFS.
 
 ---
 
@@ -150,7 +156,7 @@ Work through roughly in this order — each stage assumes the previous one passe
 - [ ] Board powers up clean — check 3V3/5V rails before first boot, no shorts/smoke
 - [ ] Serial console (USB-CDC) shows boot log; both OLEDs run the boot animation at 0x3C/0x3D
 - [ ] PCF8574 LED expander detected (no "not found" warning); LED boot animation runs
-- [ ] WiFi connects with real `config.h` credentials; mDNS resolves `ESP-BREWING.local`
+- [ ] WiFi connects via the WiFiManager captive portal (hold any panel button ~2s at power-on to force it, or let it auto-open on first boot); mDNS resolves `ESP-BREWING.local`
 - [ ] MQTT connects to the broker; `device` status topic publishes on schedule
 - [ ] NTP sync succeeds — Display 1 switches from uptime to wall-clock time
 - [ ] OTA update workflow end-to-end: flash over LAN, confirm reboot into new firmware. Set a real `OTA_PASSWORD` in `config.h` first — it's still the `"change-me"` placeholder. Work through this together to build a repeatable OTA workflow, not just a one-off test.
@@ -202,12 +208,17 @@ Work through roughly in this order — each stage assumes the previous one passe
 - [ ] Run for several hours under normal use; watch `device.heap` for a downward trend (leak) and confirm WiFi/MQTT reconnect resilience after a deliberate broker/router restart
 
 ### Firmware only
-- [x] Sensor calibration: two-point linear calibration (`corrected = raw * slope + offset`) computed at startup from config-defined (raw, reference) point pairs. `computeCalibration()` + `setup_sensor_calibration()` in `src/main.cpp`; per-sensor points (DS18B20 array, MAX31865, BME680) in `config.h` / `config_example.h` as `SENSOR_{DS,PT100X,BME680}_CAL_POINT{1,2}_{RAW,REF}`. Not yet persisted to flash — depends on the LittleFS config-persistence item below.
-- [ ] WiFi setup via captive portal (WiFiManager)
+- [x] Sensor calibration: two-point linear calibration (`corrected = raw * slope + offset`) computed at startup from config-defined (raw, reference) point pairs. `computeCalibration()` + `setup_sensor_calibration()` in `src/main.cpp`; per-sensor points (DS18B20 array, MAX31865, BME680) in `config.h` / `config_example.h` as `SENSOR_{DS,PT100X,BME680}_CAL_POINT{1,2}_{RAW,REF}`. Not yet persisted to flash or settable via MQTT — LittleFS persistence infra exists now (see item below) but calibration points aren't wired into it; still config.h-only.
+- [x] WiFi setup via captive portal (WiFiManager) — `wm.autoConnect()`/`startConfigPortal()` in `src/main.cpp`, opens on first boot/failed connect or by holding any panel button ~2s at power-on. Credentials live in the ESP32's own NVS (not `config.h`). The same portal's custom fields also provision the MQTT broker/topic-prefix/OTA password (see items below).
 - [ ] OTA via browser upload (web portal) — ArduinoOTA already works over LAN
 - [ ] Web interface: live dashboard
-- [ ] Config persistence via LittleFS (survive reboot)
-- [ ] Configurable MQTT topic prefix at runtime
+- [x] Config persistence via LittleFS (survive reboot) — power cap, device mode, PID
+      state/tunings/setpoint saved to `/settings.json`, reloaded at boot; MQTT
+      broker/topic-prefix/OTA password saved to `/netconfig.json` via the WiFiManager portal
+- [x] Configurable MQTT topic prefix at runtime — `cfgMqttRoot`/`cfgMqttDevice` in
+      `src/main.cpp`, set via the WiFiManager portal, persisted to `/netconfig.json`. All 13
+      subscribe-side topics converted from compile-time macros to runtime buffers
+      (`computeSubscribeTopics()`) to support this.
 - [ ] Temperature ramp (°C/min) control
 - [ ] Mash step programmer
 - [ ] External MQTT power consumption monitoring (Tasmota integration)

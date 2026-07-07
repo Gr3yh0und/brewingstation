@@ -39,7 +39,8 @@ Cutting a release: `git tag 3.0.0-alpha.N && git push origin 3.0.0-alpha.N` — 
 
 ### Network & Platform
 - **CraftBeerPi 3 & 4** compatible via MQTT.
-- **OTA firmware updates** — ArduinoOTA on port 8266, password-protected (`OTA_PASSWORD` in `config.h`).
+- **WiFi provisioning via captive portal** — WiFiManager opens an AP automatically on first boot or a failed connect, or can be forced by holding any panel button for ~2s at power-on. No WiFi credentials are stored in `config.h`. The same portal also lets you set the MQTT broker address, MQTT topic prefix, and OTA password without reflashing.
+- **OTA firmware updates** — ArduinoOTA on port 8266, password-protected (`OTA_PASSWORD` in `config.h`, changeable later via the WiFiManager portal).
 - **mDNS** — Device advertises as `ESP-BREWING.local`.
 - **Syslog** — UDP logging to backend server on port 514.
 - **NTP time sync** — `configTzTime()` called after WiFi connects; POSIX timezone string configurable via `NTP_TIMEZONE` in `config.h`. When synced, Display 1 shows wall-clock time instead of uptime.
@@ -64,7 +65,7 @@ Each button sets the GGM IDS2 induction cooker to a fixed power level. The match
 
 ## MQTT
 
-All topics are built from `MQTT_ROOT_PATH / MQTT_DEVICE` (set in `config.h`).
+All topics are built from `MQTT_ROOT_PATH / MQTT_DEVICE` — set in `config.h` as first-boot defaults, changeable afterward via the WiFiManager portal (persisted to `/netconfig.json`).
 
 | Topic | Direction | Payload fields |
 |---|---|---|
@@ -97,12 +98,12 @@ Copy `include/config_example.h` to `include/config.h` and fill in your values. `
 
 ```cpp
 #define HOSTNAME        "ESP-BREWING"
-#define SSID_NAME       "your-ssid"
-#define SSID_PASSWORD   "your-password"
 #define SERVER_ADDRESS  "192.168.0.x"   // Raspberry Pi IP
 #define MQTT_ROOT_PATH  "cave"
 #define MQTT_DEVICE     "brewery"
 ```
+
+**WiFi credentials are not set in `config.h`.** On first boot (or whenever no saved WiFi credentials connect), the device opens a WiFiManager captive-portal AP — connect to it from a phone/laptop and submit your WiFi SSID/password, MQTT broker address, MQTT topic prefix, and OTA password through its web form. These are stored in the ESP32's NVS (WiFi) and `/netconfig.json` (the rest), surviving reboots and reflashes. To reprovision later without clearing flash, hold any panel button for ~2s at power-on to force the portal open again.
 
 **PT100X vs PT1000:** Default is PT1000 (`R_NOM=1000`, `R_REF=4300`). Change both to `100` / `430` for PT100.
 

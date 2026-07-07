@@ -29,7 +29,7 @@ All generations share the same core idea: control the GGM IDS2 induction cooktop
 Each own-project folder is self-contained with its own README and config. In general:
 
 1. Pick a generation — `brewingstation3` for new builds, the earlier folders for reference or repairing existing hardware.
-2. Copy `config_example.h` (or `include/config_example.h` for `brewingstation3`) to `config.h` and fill in your WiFi/MQTT/OTA settings. `config.h` is gitignored — never commit real credentials.
+2. Copy `config_example.h` (or `include/config_example.h` for `brewingstation3`) to `config.h` and fill in your MQTT/OTA settings (`brewingstation3` also provisions WiFi separately, via a WiFiManager captive portal on first boot — see its README). `config.h` is gitignored — never commit real credentials.
 3. Build with PlatformIO (`pio run`) or open the `.ino` directly in the Arduino IDE — see that folder's README for board-specific notes.
 
 The whole repo can also be opened as a single VS Code workspace via [brewingstation.code-workspace](brewingstation.code-workspace).

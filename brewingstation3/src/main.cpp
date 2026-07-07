@@ -14,6 +14,8 @@
 #include <ESPmDNS.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include <LittleFS.h>
+#include <WiFiManager.h>
 #include <Syslog.h>
 #include <arduino-timer.h>
 #include <OneWire.h>
@@ -62,34 +64,39 @@ void buzzerBeep();
 // Display
 #define TEXT_ROW_HEIGHT_PX 10  // pixel height per row in the default (NULL) font
 
-// Subscribe-side topics
-#define TOPIC_INDUCTION_SET  MQTT_ROOT_PATH "/" MQTT_DEVICE "/induction/set"
-#define TOPIC_INDUCTION_CAP  MQTT_ROOT_PATH "/" MQTT_DEVICE "/induction/cap"
+// Subscribe-side topics — runtime buffers, not compile-time macros: the root path/device
+// name are now provisionable via the WiFiManager portal (cfgMqttRoot/cfgMqttDevice, up to
+// 23 chars each), so they can't be pasted together by the preprocessor. Pre-computed once
+// in setup() (after loadNetConfig()), same pattern as the PUBLISH_TOPIC_* buffers below.
+// Sized for the worst case (23 + '/' + 23 + longest suffix "/induction/cap" = 61) + margin.
+char TOPIC_INDUCTION_SET[72];
+char TOPIC_INDUCTION_CAP[72];
 // "+" (single-level wildcard), not "#": all pid subtopics are one level deep, and "#"
 // also matches the bare "pid" topic itself — which is where this device publishes its
 // own status every FREQUENCY_STATUS ms, causing a pointless publish->subscribe->parse
 // round-trip of its own messages.
-#define TOPIC_PID_WILDCARD   MQTT_ROOT_PATH "/" MQTT_DEVICE "/pid/+"
-#define TOPIC_PID_ENABLE     MQTT_ROOT_PATH "/" MQTT_DEVICE "/pid/enable"
-#define TOPIC_PID_RESET      MQTT_ROOT_PATH "/" MQTT_DEVICE "/pid/reset"
-#define TOPIC_PID_P          MQTT_ROOT_PATH "/" MQTT_DEVICE "/pid/p"
-#define TOPIC_PID_I          MQTT_ROOT_PATH "/" MQTT_DEVICE "/pid/i"
-#define TOPIC_PID_D          MQTT_ROOT_PATH "/" MQTT_DEVICE "/pid/d"
-#define TOPIC_PID_SETPOINT   MQTT_ROOT_PATH "/" MQTT_DEVICE "/pid/setpoint"
-#define TOPIC_TIMER_SET      MQTT_ROOT_PATH "/" MQTT_DEVICE "/timer/set"
-#define TOPIC_TIMER_CTL      MQTT_ROOT_PATH "/" MQTT_DEVICE "/timer/ctl"
-#define TOPIC_DEVICE_MODE    MQTT_ROOT_PATH "/" MQTT_DEVICE "/device/mode"
-#define TOPIC_RELAY_SET      MQTT_ROOT_PATH "/" MQTT_DEVICE "/relay/set"
-#define TOPIC_GPIO5_SET      MQTT_ROOT_PATH "/" MQTT_DEVICE "/gpio5/set"
+char TOPIC_PID_WILDCARD[72];
+char TOPIC_PID_ENABLE[72];
+char TOPIC_PID_RESET[72];
+char TOPIC_PID_P[72];
+char TOPIC_PID_I[72];
+char TOPIC_PID_D[72];
+char TOPIC_PID_SETPOINT[72];
+char TOPIC_TIMER_SET[72];
+char TOPIC_TIMER_CTL[72];
+char TOPIC_DEVICE_MODE[72];
+char TOPIC_RELAY_SET[72];
+char TOPIC_GPIO5_SET[72];
 
-// Publish-side topics — pre-computed in setup() to avoid per-call heap allocations
-char PUBLISH_TOPIC_SENSOR_PREFIX[60];  // e.g. "cave/brewery/sensor/"
-char PUBLISH_TOPIC_INDUCTION[50];      // e.g. "cave/brewery/induction"
-char PUBLISH_TOPIC_PID[50];            // e.g. "cave/brewery/pid"
-char PUBLISH_TOPIC_TIMER[50];          // e.g. "cave/brewery/timer"
-char PUBLISH_TOPIC_DEVICE[50];         // e.g. "cave/brewery/device"
-char PUBLISH_TOPIC_RELAY[50];          // e.g. "cave/brewery/relay"
-char PUBLISH_TOPIC_GPIO5[50];          // e.g. "cave/brewery/gpio5"
+// Publish-side topics — pre-computed in setup() to avoid per-call heap allocations.
+// Same worst-case sizing rationale as the subscribe-side buffers above.
+char PUBLISH_TOPIC_SENSOR_PREFIX[72];  // e.g. "cave/brewery/sensor/"
+char PUBLISH_TOPIC_INDUCTION[72];      // e.g. "cave/brewery/induction"
+char PUBLISH_TOPIC_PID[72];            // e.g. "cave/brewery/pid"
+char PUBLISH_TOPIC_TIMER[72];          // e.g. "cave/brewery/timer"
+char PUBLISH_TOPIC_DEVICE[72];         // e.g. "cave/brewery/device"
+char PUBLISH_TOPIC_RELAY[72];          // e.g. "cave/brewery/relay"
+char PUBLISH_TOPIC_GPIO5[72];          // e.g. "cave/brewery/gpio5"
 
 // PCF8574 I2C GPIO expander — drives all 6 power LEDs
 PCF8574 ledExpander(PCF8574_ADDR);
@@ -137,14 +144,41 @@ bool pidTuningsDirty  = false;  // set when P/I/D change; cleared after SetTunin
 PID myPID(&PID_Input, &Output, &PID_Setpoint, PID_P, PID_I, PID_D, P_ON_M, DIRECT);
 
 // Network
-const char *ssid     = SSID_NAME;
-const char *password = SSID_PASSWORD;
 const char *hostname = HOSTNAME;
+WiFiManager wm;
 WiFiClient wifiClient;
 WiFiUDP udpClient;
 PubSubClient mqttClient(wifiClient);
+
+// Runtime-configurable network/identity settings — provisioned via the WiFiManager portal's
+// custom parameters (see setup()) instead of being fixed at compile time. Seeded from
+// config.h so first boot (no /netconfig.json yet) behaves exactly as before.
+char cfgMqttBroker[40]  = BROKER_ADDRESS;
+char cfgMqttRoot[24]    = MQTT_ROOT_PATH;
+char cfgMqttDevice[24]  = MQTT_DEVICE;
+char cfgOtaPassword[32] = OTA_PASSWORD;
 Syslog syslog(udpClient, SYSLOG_SERVER, SYSLOG_PORT, hostname, SYSLOG_APP_NAME, LOG_KERN);
 bool message_received = false;
+
+// Fills in the runtime TOPIC_* buffers (declared above, near the induction cooker's
+// legacy compile-time defines) from cfgMqttRoot/cfgMqttDevice. Must run after
+// loadNetConfig() and before subscribe_topics()/mqttCallback() are ever reachable.
+void computeSubscribeTopics() {
+  snprintf(TOPIC_INDUCTION_SET, sizeof(TOPIC_INDUCTION_SET), "%s/%s/induction/set", cfgMqttRoot, cfgMqttDevice);
+  snprintf(TOPIC_INDUCTION_CAP, sizeof(TOPIC_INDUCTION_CAP), "%s/%s/induction/cap", cfgMqttRoot, cfgMqttDevice);
+  snprintf(TOPIC_PID_WILDCARD,  sizeof(TOPIC_PID_WILDCARD),  "%s/%s/pid/+",         cfgMqttRoot, cfgMqttDevice);
+  snprintf(TOPIC_PID_ENABLE,    sizeof(TOPIC_PID_ENABLE),    "%s/%s/pid/enable",    cfgMqttRoot, cfgMqttDevice);
+  snprintf(TOPIC_PID_RESET,     sizeof(TOPIC_PID_RESET),     "%s/%s/pid/reset",     cfgMqttRoot, cfgMqttDevice);
+  snprintf(TOPIC_PID_P,         sizeof(TOPIC_PID_P),         "%s/%s/pid/p",         cfgMqttRoot, cfgMqttDevice);
+  snprintf(TOPIC_PID_I,         sizeof(TOPIC_PID_I),         "%s/%s/pid/i",         cfgMqttRoot, cfgMqttDevice);
+  snprintf(TOPIC_PID_D,         sizeof(TOPIC_PID_D),         "%s/%s/pid/d",         cfgMqttRoot, cfgMqttDevice);
+  snprintf(TOPIC_PID_SETPOINT,  sizeof(TOPIC_PID_SETPOINT),  "%s/%s/pid/setpoint",  cfgMqttRoot, cfgMqttDevice);
+  snprintf(TOPIC_TIMER_SET,     sizeof(TOPIC_TIMER_SET),     "%s/%s/timer/set",     cfgMqttRoot, cfgMqttDevice);
+  snprintf(TOPIC_TIMER_CTL,     sizeof(TOPIC_TIMER_CTL),     "%s/%s/timer/ctl",     cfgMqttRoot, cfgMqttDevice);
+  snprintf(TOPIC_DEVICE_MODE,   sizeof(TOPIC_DEVICE_MODE),   "%s/%s/device/mode",   cfgMqttRoot, cfgMqttDevice);
+  snprintf(TOPIC_RELAY_SET,     sizeof(TOPIC_RELAY_SET),     "%s/%s/relay/set",     cfgMqttRoot, cfgMqttDevice);
+  snprintf(TOPIC_GPIO5_SET,     sizeof(TOPIC_GPIO5_SET),     "%s/%s/gpio5/set",     cfgMqttRoot, cfgMqttDevice);
+}
 
 // Timers
 Timer<> timerTempStatus;
@@ -690,6 +724,87 @@ void setup_pid() {
   myPID.SetTunings(PID_P, PID_I, PID_D);
 }
 
+// ─── Network config persistence (LittleFS) ───────────────────────────────────
+// Broker address, MQTT topic prefix, and OTA password, provisioned via the WiFiManager
+// portal's custom parameters. Loaded before Wi-Fi/MQTT/OTA are set up (no syslog yet at
+// that point, hence no logging here — a missing/corrupt file just falls back silently
+// to the config.h defaults already assigned to these globals above).
+#define NETCONFIG_FILE "/netconfig.json"
+
+void saveNetConfig() {
+  JsonDocument doc;
+  doc["broker"]      = cfgMqttBroker;
+  doc["mqttRoot"]    = cfgMqttRoot;
+  doc["mqttDevice"]  = cfgMqttDevice;
+  doc["otaPassword"] = cfgOtaPassword;
+  File f = LittleFS.open(NETCONFIG_FILE, "w");
+  if (!f) return;
+  serializeJson(doc, f);
+  f.close();
+}
+
+void loadNetConfig() {
+  File f = LittleFS.open(NETCONFIG_FILE, "r");
+  if (!f) return;  // first boot, or never saved — keep config.h defaults
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, f);
+  f.close();
+  if (err != DeserializationError::Ok) return;
+  if (doc["broker"].is<const char*>())      strlcpy(cfgMqttBroker,  doc["broker"],      sizeof(cfgMqttBroker));
+  if (doc["mqttRoot"].is<const char*>())    strlcpy(cfgMqttRoot,    doc["mqttRoot"],    sizeof(cfgMqttRoot));
+  if (doc["mqttDevice"].is<const char*>())  strlcpy(cfgMqttDevice,  doc["mqttDevice"],  sizeof(cfgMqttDevice));
+  if (doc["otaPassword"].is<const char*>()) strlcpy(cfgOtaPassword, doc["otaPassword"], sizeof(cfgOtaPassword));
+}
+
+// Set by WiFiManager's save-config callback when the portal form is submitted; setup()
+// checks this right after autoConnect()/startConfigPortal() to know whether to copy the
+// custom parameters' values back into cfgMqtt*/cfgOtaPassword and persist them.
+bool shouldSaveNetConfig = false;
+void onNetConfigSaved() { shouldSaveNetConfig = true; }
+
+// ─── Settings persistence (LittleFS) ─────────────────────────────────────────
+// Runtime-tunable values (power cap, PID state/tunings/setpoint, device mode) live
+// only in RAM otherwise, so a reboot silently reverts them to the config.h compile-time
+// defaults. Persisted as a small JSON file, written whenever one of these values
+// changes via MQTT and re-applied at boot, after setup_pid()'s own initialization.
+#define SETTINGS_FILE "/settings.json"
+
+void saveSettings() {
+  JsonDocument doc;
+  doc["cap"]      = powerCap;
+  doc["mode"]     = deviceMode;
+  doc["pidState"] = PID_state;
+  doc["P"]        = PID_P;
+  doc["I"]        = PID_I;
+  doc["D"]        = PID_D;
+  doc["setpoint"] = PID_Setpoint;
+  File f = LittleFS.open(SETTINGS_FILE, "w");
+  if (!f) { syslog.log(LOG_ERR, "Failed to open settings file for write"); return; }
+  serializeJson(doc, f);
+  f.close();
+}
+
+void loadSettings() {
+  File f = LittleFS.open(SETTINGS_FILE, "r");
+  if (!f) return;  // first boot, or never saved — keep config.h defaults
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, f);
+  f.close();
+  if (err != DeserializationError::Ok) {
+    syslog.log(LOG_WARNING, "Settings file corrupt, using defaults");
+    return;
+  }
+  if (doc["cap"].is<int>())    powerCap   = constrain((int)doc["cap"], 0, 100);
+  if (doc["mode"].is<int>())   deviceMode = ((int)doc["mode"] == MODE_SLAVE) ? MODE_SLAVE : MODE_STANDALONE;
+  if (doc["pidState"].is<bool>()) PID_state = (bool)doc["pidState"];
+  if (doc["P"].is<double>()) { PID_P = constrain((double)doc["P"], 0.0, (double)PID_MAX_P); pidTuningsDirty = true; }
+  if (doc["I"].is<double>()) { PID_I = constrain((double)doc["I"], 0.0, (double)PID_MAX_I); pidTuningsDirty = true; }
+  if (doc["D"].is<double>()) { PID_D = constrain((double)doc["D"], 0.0, (double)PID_MAX_D); pidTuningsDirty = true; }
+  if (doc["setpoint"].is<double>())
+    PID_Setpoint = constrain((double)doc["setpoint"], 0.0, (double)PID_SETPOINT_MAX);
+  syslog.log(LOG_INFO, "Settings loaded from flash");
+}
+
 // Reconnect to MQTT and re-subscribe without resetting device state.
 // Uses millis()-based timing so OTA stays responsive during reconnect.
 void reconnect_mqtt() {
@@ -721,6 +836,8 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
   JsonDocument doc;
   if (deserializeJson(doc, payload, length) != DeserializationError::Ok) return;
 
+  bool settingsDirty = false;  // set true below when a persisted setting changes
+
   // induction/set — {power: 0-100}; 0 = off. Also accepts legacy {state:"off", power:N}
   if (strcmp(topic, TOPIC_INDUCTION_SET) == 0) {
     int pwr = doc["power"] | 0;
@@ -735,11 +852,13 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
   // induction/cap — {cap: 0-100}
   if (strcmp(topic, TOPIC_INDUCTION_CAP) == 0 && doc["cap"].is<int>()) {
     powerCap = constrain((int)doc["cap"], 0, 100);
+    settingsDirty = true;
   }
 
   // pid/setpoint — settable regardless of PID state (but not in slave mode, see below)
   if (strcmp(topic, TOPIC_PID_SETPOINT) == 0 && doc["setpoint"].is<double>()) {
     PID_Setpoint = constrain((double)doc["setpoint"], 0.0, (double)PID_SETPOINT_MAX);
+    settingsDirty = true;
   }
 
   if (deviceMode == MODE_STANDALONE) {
@@ -748,6 +867,7 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
     // moment device/mode later switches back to standalone.
     if (strcmp(topic, TOPIC_PID_ENABLE) == 0) {
       PID_state = (bool)doc["enabled"];
+      settingsDirty = true;
     }
     // PID_v1 recomputes Output from its internal outputSum on every Compute(), so just
     // zeroing Output snaps right back — toggling MANUAL/AUTOMATIC forces Initialize(),
@@ -757,9 +877,9 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
       myPID.SetMode(MANUAL);
       myPID.SetMode(AUTOMATIC);
     }
-    if (strcmp(topic, TOPIC_PID_P) == 0 && doc["P"].is<double>()) { PID_P = constrain((double)doc["P"], 0.0, (double)PID_MAX_P); pidTuningsDirty = true; }
-    if (strcmp(topic, TOPIC_PID_I) == 0 && doc["I"].is<double>()) { PID_I = constrain((double)doc["I"], 0.0, (double)PID_MAX_I); pidTuningsDirty = true; }
-    if (strcmp(topic, TOPIC_PID_D) == 0 && doc["D"].is<double>()) { PID_D = constrain((double)doc["D"], 0.0, (double)PID_MAX_D); pidTuningsDirty = true; }
+    if (strcmp(topic, TOPIC_PID_P) == 0 && doc["P"].is<double>()) { PID_P = constrain((double)doc["P"], 0.0, (double)PID_MAX_P); pidTuningsDirty = settingsDirty = true; }
+    if (strcmp(topic, TOPIC_PID_I) == 0 && doc["I"].is<double>()) { PID_I = constrain((double)doc["I"], 0.0, (double)PID_MAX_I); pidTuningsDirty = settingsDirty = true; }
+    if (strcmp(topic, TOPIC_PID_D) == 0 && doc["D"].is<double>()) { PID_D = constrain((double)doc["D"], 0.0, (double)PID_MAX_D); pidTuningsDirty = settingsDirty = true; }
   }
 
   // timer/set — {duration: seconds}
@@ -801,12 +921,16 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
     if (mode == "slave") {
       deviceMode = MODE_SLAVE;
       PID_state  = false;
+      settingsDirty = true;
       syslog.log(LOG_INFO, "Mode: slave");
     } else if (mode == "standalone") {
       deviceMode = MODE_STANDALONE;
+      settingsDirty = true;
       syslog.log(LOG_INFO, "Mode: standalone");
     }
   }
+
+  if (settingsDirty) saveSettings();
 }
 
 // ─── Publish ──────────────────────────────────────────────────────────────────
@@ -969,6 +1093,12 @@ void setup() {
   esp_task_wdt_init(&wdt_cfg);
   esp_task_wdt_add(NULL);
 
+  // true = format on mount failure (e.g. first boot, or a previously non-LittleFS partition).
+  // Runs before Wi-Fi/syslog are up, so failures here are silent beyond the return value —
+  // loadSettings()/loadNetConfig() below simply find no file and fall back to config.h defaults.
+  LittleFS.begin(true);
+  loadNetConfig();  // must run before the Wi-Fi block below, which needs cfgMqttBroker etc.
+
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   setup_display(display,  0x3C);
   setup_display(display2, 0x3D);
@@ -987,16 +1117,58 @@ void setup() {
   }
   setAllLEDs(false);
 
-  // Wi-Fi
-  display_writex(display, 0, "Wi-Fi...", false);
-  WiFi.mode(WIFI_STA);
+  // Boot-time button hold — gives a ~2s window to force the WiFiManager config portal
+  // open even if saved Wi-Fi credentials would still work, so the device can be
+  // reprovisioned (new broker/topic-prefix/OTA password too) without clearing flash.
+  display_writex(display, 0, "Hold button for Wi-Fi setup...", false);
+  bool forcePortal = false;
+  unsigned long holdStart = millis();
+  while (millis() - holdStart < 2000) {
+    if (getButtonBucket(analogRead(BUTTON_PIN), BUTTON_THRESHOLD_B1, BUTTON_THRESHOLD_B2,
+                         BUTTON_THRESHOLD_B3, BUTTON_THRESHOLD_B4, BUTTON_THRESHOLD_B5) != 0) {
+      forcePortal = true;
+      break;
+    }
+    delay(50);
+  }
+
+  // Wi-Fi — WiFiManager: uses ESP32's saved NVS credentials if present, otherwise (or on
+  // failure, or a forced portal above) opens a captive-portal AP so the device can be
+  // provisioned without a reflash. Custom fields let the same portal also set the MQTT
+  // broker/topic-prefix/OTA password, pre-filled from netconfig.json / config.h defaults.
+  display_writex(display, 0, forcePortal ? "Wi-Fi setup..." : "Wi-Fi...", false);
   WiFi.setHostname(hostname);
-  WiFi.begin(ssid, password);
-  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
+
+  WiFiManagerParameter p_broker("broker", "MQTT broker IP/host", cfgMqttBroker, sizeof(cfgMqttBroker));
+  WiFiManagerParameter p_root("root", "MQTT root path", cfgMqttRoot, sizeof(cfgMqttRoot));
+  WiFiManagerParameter p_device("device", "MQTT device name", cfgMqttDevice, sizeof(cfgMqttDevice));
+  WiFiManagerParameter p_ota("ota", "OTA password", cfgOtaPassword, sizeof(cfgOtaPassword));
+  wm.addParameter(&p_broker);
+  wm.addParameter(&p_root);
+  wm.addParameter(&p_device);
+  wm.addParameter(&p_ota);
+  wm.setSaveConfigCallback(onNetConfigSaved);
+  wm.setConfigPortalTimeout(180);
+  wm.setAPCallback([](WiFiManager *mgr) {
+    display_writex(display, 1, "AP: " + mgr->getConfigPortalSSID(), false);
+    display_writex(display, 2, "IP: 192.168.4.1", false);
+  });
+
+  bool connected = forcePortal ? wm.startConfigPortal(hostname) : wm.autoConnect(hostname);
+  if (!connected) {
     display_writex(display, 0, "Wi-Fi: failed, reboot", true);
     delay(5000);
     ESP.restart();
   }
+
+  if (shouldSaveNetConfig) {
+    strlcpy(cfgMqttBroker,  p_broker.getValue(), sizeof(cfgMqttBroker));
+    strlcpy(cfgMqttRoot,    p_root.getValue(),   sizeof(cfgMqttRoot));
+    strlcpy(cfgMqttDevice,  p_device.getValue(), sizeof(cfgMqttDevice));
+    strlcpy(cfgOtaPassword, p_ota.getValue(),    sizeof(cfgOtaPassword));
+    saveNetConfig();
+  }
+
   display_writex(display, 0, "Wi-Fi: " + WiFi.localIP().toString(), false);
   configTzTime(NTP_TIMEZONE, NTP_SERVER);
 #if SERIAL_ENABLE
@@ -1013,7 +1185,7 @@ void setup() {
   // OTA
   ArduinoOTA.setPort(OTA_UPDATE_PORT);
   ArduinoOTA.setHostname(hostname);
-  ArduinoOTA.setPassword(OTA_PASSWORD);
+  ArduinoOTA.setPassword(cfgOtaPassword);
   ArduinoOTA.onStart([]() {
     display_writex(display, 2, "OTA: updating...", true);
   });
@@ -1031,7 +1203,7 @@ void setup() {
 
   // MQTT
   display_writex(display, 3, "MQTT...", false);
-  mqttClient.setServer(BROKER_ADDRESS, BROKER_PORT);
+  mqttClient.setServer(cfgMqttBroker, BROKER_PORT);
   mqttClient.setCallback(mqttCallback);
   mqttClient.connect(HOSTNAME, BROKER_USER, BROKER_PASSWORD);
   int counter = 0;
@@ -1046,21 +1218,24 @@ void setup() {
   }
   display_writex(display, 3, "MQTT: ok", false);
 
-  // Pre-compute publish topic strings (done once to avoid per-call heap allocations)
+  // Pre-compute publish- and subscribe-side topic strings (done once to avoid per-call heap
+  // allocations) from the runtime root/device — provisionable via the portal, so these can
+  // no longer be pasted together by the preprocessor.
   snprintf(PUBLISH_TOPIC_SENSOR_PREFIX, sizeof(PUBLISH_TOPIC_SENSOR_PREFIX),
-           "%s/%s/%s/", MQTT_ROOT_PATH, MQTT_DEVICE, SENSOR_MQTT_PREFIX);
+           "%s/%s/%s/", cfgMqttRoot, cfgMqttDevice, SENSOR_MQTT_PREFIX);
   snprintf(PUBLISH_TOPIC_INDUCTION, sizeof(PUBLISH_TOPIC_INDUCTION),
-           "%s/%s/%s", MQTT_ROOT_PATH, MQTT_DEVICE, INDUCTION_MQTT_STATUS);
+           "%s/%s/%s", cfgMqttRoot, cfgMqttDevice, INDUCTION_MQTT_STATUS);
   snprintf(PUBLISH_TOPIC_PID, sizeof(PUBLISH_TOPIC_PID),
-           "%s/%s/%s", MQTT_ROOT_PATH, MQTT_DEVICE, PID_MQTT_TOPIC);
+           "%s/%s/%s", cfgMqttRoot, cfgMqttDevice, PID_MQTT_TOPIC);
   snprintf(PUBLISH_TOPIC_TIMER, sizeof(PUBLISH_TOPIC_TIMER),
-           "%s/%s/timer", MQTT_ROOT_PATH, MQTT_DEVICE);
+           "%s/%s/timer", cfgMqttRoot, cfgMqttDevice);
   snprintf(PUBLISH_TOPIC_DEVICE, sizeof(PUBLISH_TOPIC_DEVICE),
-           "%s/%s/device", MQTT_ROOT_PATH, MQTT_DEVICE);
+           "%s/%s/device", cfgMqttRoot, cfgMqttDevice);
   snprintf(PUBLISH_TOPIC_RELAY, sizeof(PUBLISH_TOPIC_RELAY),
-           "%s/%s/relay", MQTT_ROOT_PATH, MQTT_DEVICE);
+           "%s/%s/relay", cfgMqttRoot, cfgMqttDevice);
   snprintf(PUBLISH_TOPIC_GPIO5, sizeof(PUBLISH_TOPIC_GPIO5),
-           "%s/%s/gpio5", MQTT_ROOT_PATH, MQTT_DEVICE);
+           "%s/%s/gpio5", cfgMqttRoot, cfgMqttDevice);
+  computeSubscribeTopics();
 
   // Induction cooker
   display_writex(display, 4, "Cooker...", false);
