@@ -46,11 +46,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `/update` and `/config` (+ its download) are gated behind HTTP Basic
   Auth using the same `cfgOtaPassword` ArduinoOTA already uses; `/` is
   unauthenticated (read-only, no secrets). The shared nav bar shows the
-  hostname and current firmware version. The `/update` page also links
-  to the project's GitHub releases page and has a "Check for update"
-  button that runs entirely in the browser (`fetch()` against the
-  GitHub releases API, filtered to `3.*` tags, compared against the
-  running version) — no TLS/HTTPS client added to the firmware itself.
+  hostname and current firmware version, with a yellow "pre-release"
+  warning badge next to the version when it's an alpha/beta build
+  (`isPrereleaseVersion()` in `pure_logic.h`). The `/update` page also
+  links to the project's GitHub releases page and has a "Check for
+  update" button that runs entirely in the browser (`fetch()` against
+  the GitHub releases API, filtered to `3.*` tags, compared against
+  the running version) — no TLS/HTTPS client added to the firmware
+  itself.
+- Extracted two more small pure functions into `pure_logic.h` for
+  native testing: `deviceModeName()` (was duplicated inline as
+  `deviceMode == MODE_SLAVE ? "slave" : "standalone"` at 5 call sites
+  across MQTT status, OLED display, and the new web pages) and
+  `isPrereleaseVersion()` (used by the nav bar badge above). 5 new
+  tests (50 total).
 
 ## [3.0.0-alpha.2] - 2026-07-07
 

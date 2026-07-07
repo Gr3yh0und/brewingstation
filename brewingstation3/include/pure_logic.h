@@ -116,6 +116,19 @@ inline const char* inductionErrorString(uint8_t code) {
   }
 }
 
+// Single source of truth for the "slave"/"standalone" mode label — was previously
+// duplicated inline as `deviceMode == MODE_SLAVE ? "slave" : "standalone"` at 5
+// call sites (MQTT device status, OLED display, web dashboard/config page).
+inline const char* deviceModeName(bool isSlave) {
+  return isSlave ? "slave" : "standalone";
+}
+
+// True if the VERSION string identifies a pre-release build (alpha/beta), used by the
+// web dashboard's nav bar to flag a non-release firmware with a warning badge.
+inline bool isPrereleaseVersion(const char* version) {
+  return strstr(version, "alpha") != nullptr || strstr(version, "beta") != nullptr;
+}
+
 // ─── Brew timer state machine ──────────────────────────────────────────────────
 // millis()-based, with `now` injected by the caller so it's testable (including
 // wraparound, via deadlineReached()) without depending on the real clock.

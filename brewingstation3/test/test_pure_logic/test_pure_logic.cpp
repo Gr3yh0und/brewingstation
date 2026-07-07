@@ -76,6 +76,31 @@ void test_induction_error_string_unknown_code() {
   TEST_ASSERT_EQUAL_STRING("Err:???", inductionErrorString(255));
 }
 
+// ─── deviceModeName ──────────────────────────────────────────────────────────────
+
+void test_device_mode_name_slave() {
+  TEST_ASSERT_EQUAL_STRING("slave", deviceModeName(true));
+}
+
+void test_device_mode_name_standalone() {
+  TEST_ASSERT_EQUAL_STRING("standalone", deviceModeName(false));
+}
+
+// ─── isPrereleaseVersion ─────────────────────────────────────────────────────────
+
+void test_prerelease_version_alpha() {
+  TEST_ASSERT_TRUE(isPrereleaseVersion("3.0.0-alpha.2"));
+}
+
+void test_prerelease_version_beta() {
+  TEST_ASSERT_TRUE(isPrereleaseVersion("3.0.0-beta.1"));
+}
+
+void test_prerelease_version_release() {
+  TEST_ASSERT_FALSE(isPrereleaseVersion("3.0.0"));
+  TEST_ASSERT_FALSE(isPrereleaseVersion("1.2.3"));
+}
+
 // ─── deadlineReached ────────────────────────────────────────────────────────────
 
 void test_deadline_not_yet_reached() {
@@ -336,6 +361,11 @@ int main(int argc, char **argv) {
   RUN_TEST(test_button_b6_shorted_to_ground);
   RUN_TEST(test_induction_error_string_known_codes);
   RUN_TEST(test_induction_error_string_unknown_code);
+  RUN_TEST(test_device_mode_name_slave);
+  RUN_TEST(test_device_mode_name_standalone);
+  RUN_TEST(test_prerelease_version_alpha);
+  RUN_TEST(test_prerelease_version_beta);
+  RUN_TEST(test_prerelease_version_release);
   RUN_TEST(test_deadline_not_yet_reached);
   RUN_TEST(test_deadline_reached_exactly);
   RUN_TEST(test_deadline_reached_past);

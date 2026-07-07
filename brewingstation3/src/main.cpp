@@ -979,7 +979,7 @@ void pid_write_mqtt() {
   JsonDocument doc;
   uint32_t ts = ntpTimestamp();
   doc["enabled"]  = PID_state  ? 1 : 0;
-  doc["mode"]     = (deviceMode == MODE_SLAVE) ? "slave" : "standalone";
+  doc["mode"]     = deviceModeName(deviceMode == MODE_SLAVE);
   doc["setpoint"] = PID_Setpoint;
   doc["input"]    = PID_Input;
   doc["output"]   = Output;
@@ -1037,7 +1037,7 @@ void device_write_mqtt() {
   doc["heap"]    = ESP.getFreeHeap();
   doc["rssi"]    = WiFi.RSSI();
   doc["version"] = VERSION;
-  doc["mode"]    = (deviceMode == MODE_SLAVE) ? "slave" : "standalone";
+  doc["mode"]    = deviceModeName(deviceMode == MODE_SLAVE);
   if (ts) doc["ts"] = ts;
   char message[160];
   serializeJson(doc, message);
@@ -1094,6 +1094,8 @@ const char WEB_PAGE_HEAD[] PROGMEM =
     ".nav{display:flex;align-items:baseline;flex-wrap:wrap;margin-bottom:1em}"
     ".nav .brand{font-weight:bold;color:#eee;margin-right:1em}"
     ".nav .brand .ver{color:#888;font-weight:normal;font-size:0.85em;margin-left:6px}"
+    ".nav .brand .prerelease{color:#111;background:#e8b400;font-weight:bold;font-size:0.75em;"
+    "margin-left:6px;padding:1px 6px;border-radius:3px}"
     ".nav a{display:inline-block;padding:6px 14px;margin-right:4px;background:#222;border-radius:4px 4px 0 0}"
     ".nav a.active{background:#6cf;color:#111;font-weight:bold}"
     "</style></head><body>";
@@ -1104,7 +1106,11 @@ const char WEB_PAGE_HEAD[] PROGMEM =
 String webPageHeader(const char *active) {
   String html = FPSTR(WEB_PAGE_HEAD);
   html += "<div class='nav'>";
-  html += "<span class='brand'>" HOSTNAME "<span class='ver'>v" VERSION "</span></span>";
+  html += "<span class='brand'>" HOSTNAME "<span class='ver'>v" VERSION "</span>";
+  if (isPrereleaseVersion(VERSION)) {
+    html += "<span class='prerelease' title='Pre-release firmware — not a stable build'>&#9888; pre-release</span>";
+  }
+  html += "</span>";
   html += "<a href='/'"          + String(strcmp(active, "")       == 0 ? " class='active'" : "") + ">Status</a>";
   html += "<a href='/update'"    + String(strcmp(active, "update") == 0 ? " class='active'" : "") + ">Update</a>";
   html += "<a href='/config'"    + String(strcmp(active, "config") == 0 ? " class='active'" : "") + ">Config</a>";
@@ -1120,7 +1126,7 @@ void handleWebRoot() {
   }
   html += "<tr><td>Setpoint</td><td>" + String(PID_Setpoint, 1) + " &deg;C</td></tr>";
   html += "<tr><td>PID</td><td>" + String(PID_state ? "on" : "off") + "</td></tr>";
-  html += "<tr><td>Mode</td><td>" + String(deviceMode == MODE_SLAVE ? "slave" : "standalone") + "</td></tr>";
+  html += "<tr><td>Mode</td><td>" + String(deviceModeName(deviceMode == MODE_SLAVE)) + "</td></tr>";
   html += "<tr><td>Induction power</td><td>" + String(inductionCooker.power) + " % (cap " + String(powerCap) + " %)</td></tr>";
   html += "<tr><td>Relay</td><td>" + String(inductionCooker.isRelayon ? "on" : "off") + "</td></tr>";
   html += "<tr><td>GPIO5</td><td>" + String(gpio5State ? "on" : "off") + "</td></tr>";
@@ -1232,7 +1238,7 @@ void buildConfigJson(JsonDocument &doc) {
   doc["mqttDevice"]  = cfgMqttDevice;
   doc["otaPassword"] = cfgOtaPassword;
   doc["powerCap"]    = powerCap;
-  doc["deviceMode"]  = (deviceMode == MODE_SLAVE) ? "slave" : "standalone";
+  doc["deviceMode"]  = deviceModeName(deviceMode == MODE_SLAVE);
   doc["pidEnabled"]  = PID_state;
   doc["pidSetpoint"] = PID_Setpoint;
   doc["pidP"]        = PID_P;
@@ -1254,7 +1260,7 @@ void handleWebConfigPage() {
   html += "<tr><td>MQTT topic prefix</td><td>" + String(cfgMqttRoot) + "/" + String(cfgMqttDevice) + "</td></tr>";
   html += "<tr><td>OTA password</td><td>&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull; (see download for plaintext)</td></tr>";
   html += "<tr><td>Power cap</td><td>" + String(powerCap) + " %</td></tr>";
-  html += "<tr><td>Device mode</td><td>" + String(deviceMode == MODE_SLAVE ? "slave" : "standalone") + "</td></tr>";
+  html += "<tr><td>Device mode</td><td>" + String(deviceModeName(deviceMode == MODE_SLAVE)) + "</td></tr>";
   html += "<tr><td>PID enabled</td><td>" + String(PID_state ? "yes" : "no") + "</td></tr>";
   html += "<tr><td>PID setpoint</td><td>" + String(PID_Setpoint, 1) + " &deg;C</td></tr>";
   html += "<tr><td>PID tunings (P/I/D)</td><td>" + String(PID_P, 4) + " / " + String(PID_I, 4) + " / " + String(PID_D, 4) + "</td></tr>";
