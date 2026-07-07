@@ -53,7 +53,11 @@ void buzzerBeep();
 // Sensor limits
 #define SENSOR_MAXIMUM        5
 #define SENSOR_MQTT_PREFIX    "sensor"    // publish root: {root}/{device}/sensor/{N}
-#define PT100X_NO_SENSOR_TEMP -242.02f   // sentinel returned by MAX31865 when no sensor connected
+// MAX31865 reports ~-242.02f when the RTD is open-circuit (extrapolated from a maxed-out
+// fault reading). Compared with a threshold rather than exact equality: the value is
+// deterministic for a given R_NOM/R_REF pair, but exact float equality is fragile across
+// library versions/compilers, so anything unrealistically cold is treated as "no sensor".
+#define PT100X_FAULT_THRESHOLD -240.0f
 
 // Display
 #define TEXT_ROW_HEIGHT_PX 10  // pixel height per row in the default (NULL) font
@@ -61,7 +65,11 @@ void buzzerBeep();
 // Subscribe-side topics
 #define TOPIC_INDUCTION_SET  MQTT_ROOT_PATH "/" MQTT_DEVICE "/induction/set"
 #define TOPIC_INDUCTION_CAP  MQTT_ROOT_PATH "/" MQTT_DEVICE "/induction/cap"
-#define TOPIC_PID_WILDCARD   MQTT_ROOT_PATH "/" MQTT_DEVICE "/pid/#"
+// "+" (single-level wildcard), not "#": all pid subtopics are one level deep, and "#"
+// also matches the bare "pid" topic itself — which is where this device publishes its
+// own status every FREQUENCY_STATUS ms, causing a pointless publish->subscribe->parse
+// round-trip of its own messages.
+#define TOPIC_PID_WILDCARD   MQTT_ROOT_PATH "/" MQTT_DEVICE "/pid/+"
 #define TOPIC_PID_ENABLE     MQTT_ROOT_PATH "/" MQTT_DEVICE "/pid/enable"
 #define TOPIC_PID_RESET      MQTT_ROOT_PATH "/" MQTT_DEVICE "/pid/reset"
 #define TOPIC_PID_P          MQTT_ROOT_PATH "/" MQTT_DEVICE "/pid/p"
@@ -171,6 +179,17 @@ unsigned long timerRemainingMs() {
   if (timerPaused)  return timerPauseRemMs;
   if (timerRunning) return deadlineReached(millis(), timerEndMs) ? 0 : timerEndMs - millis();
   return 0;
+}
+
+// Detects brew-timer expiry independent of the display refresh cadence — called every
+// loop() iteration so expiry can't be delayed by DISPLAY_FREQUENCY, and status publishes
+// (timer_write_mqtt) never observe a stale "running:1, remaining:0" window.
+void checkTimerExpiry() {
+  if (timerRunning && timerRemainingMs() == 0) {
+    timerRunning = false;
+    buzzerBeep();
+    syslog.log(LOG_INFO, "Brew timer expired");
+  }
 }
 
 // Sensor state
@@ -378,11 +397,6 @@ void display_update() {
   char row1_value[9];
   if (timerRunning || timerPaused) {
     unsigned long rem = timerRemainingMs();
-    if (timerRunning && rem == 0) {
-      timerRunning = false;  // expired
-      buzzerBeep();
-      syslog.log(LOG_INFO, "Brew timer expired");
-    }
     strcpy(row1_label, "Tmr");
     sprintf(row1_value, "%02lu:%02lu", rem / 60000UL, (rem / 1000UL) % 60UL);
   } else {
@@ -612,7 +626,7 @@ int setup_temp_sensors() {
   }
 
   pt100x.begin(SENSOR_PT100X_Config);
-  if (pt100x.temperature(SENSOR_PT100X_R_NOM, SENSOR_PT100X_R_REF) != PT100X_NO_SENSOR_TEMP) {
+  if (pt100x.temperature(SENSOR_PT100X_R_NOM, SENSOR_PT100X_R_REF) > PT100X_FAULT_THRESHOLD) {
     pt100x_found = true;
     output += String(numberOfDevices++) + "=PT100X,";
   }
@@ -654,7 +668,7 @@ void temperature_read() {
 
   if (pt100x_found) {
     float reading = pt100x.temperature(SENSOR_PT100X_R_NOM, SENSOR_PT100X_R_REF);
-    if (reading != PT100X_NO_SENSOR_TEMP) {
+    if (reading > PT100X_FAULT_THRESHOLD) {
       temperatures[idx] = reading * pt100xCalSlope + pt100xCalOffset;
       if (idx == PID_SENSOR_INDEX) lastSensorReadTime = millis();
     }
@@ -747,17 +761,18 @@ void mqttCallback(char *topic, byte *payload, unsigned int length) {
     powerCap = constrain((int)doc["cap"], 0, 100);
   }
 
-  // pid/enable — {enabled: true/false}
-  if (strcmp(topic, TOPIC_PID_ENABLE) == 0) {
-    PID_state = (bool)doc["enabled"];
-  }
-
-  // pid/setpoint — settable regardless of PID state
+  // pid/setpoint — settable regardless of PID state (but not in slave mode, see below)
   if (strcmp(topic, TOPIC_PID_SETPOINT) == 0 && doc["setpoint"].is<double>()) {
     PID_Setpoint = constrain((double)doc["setpoint"], 0.0, (double)PID_SETPOINT_MAX);
   }
 
   if (deviceMode == MODE_STANDALONE) {
+    // pid/enable — {enabled: true/false}. Gated on standalone mode: otherwise this could
+    // set a latent PID_state=true while in slave mode, which would spring to life the
+    // moment device/mode later switches back to standalone.
+    if (strcmp(topic, TOPIC_PID_ENABLE) == 0) {
+      PID_state = (bool)doc["enabled"];
+    }
     // PID_v1 recomputes Output from its internal outputSum on every Compute(), so just
     // zeroing Output snaps right back — toggling MANUAL/AUTOMATIC forces Initialize(),
     // which reseeds outputSum from Output (0) and lastInput from the current PID_Input.
@@ -1139,6 +1154,8 @@ void loop() {
   timerTempStatus.tick();
   timerInductionStatus.tick();
   timerDisplayUpdate.tick();
+
+  checkTimerExpiry();
 
   // Safety: sensor staleness — fires whenever the cooker is on, regardless of mode
   if (inductionCooker.isInduon && !isSensorHealthy()) {

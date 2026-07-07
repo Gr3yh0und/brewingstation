@@ -156,6 +156,7 @@ PCF8574_PIN_LED_100     P5
 
 ### Done / no longer needed
 - [x] Code review bug pass (8 bugs fixed in `src/main.cpp`): OOB write in the induction RX ISR (`inputBuffer` off-by-one), sensor-staleness tracking ignoring non-DS18B20 PID sensors, `pid/reset` not actually resetting PID_v1's integral term, malformed-MQTT-payload validation (`induction/cap`, `pid/setpoint`, `pid/p`/`i`/`d`), panel buttons bypassing `powerCap`, `millis()` wraparound in all deadline comparisons (new `deadlineReached()` helper in `pure_logic.h`, tested), ISR calling a non-`IRAM_ATTR` function, and a pointless reassignment racing the ISR in `setup_induction()`.
+- [x] Code review judgment-call pass: regenerated `include/config.h` from `config_example.h` (it described an old "custom carrier PCB" revision — wrong pins throughout, including `RELAY_PIN` on a boot-strapping pin and `GPIO_EXT_PIN` on a pin not exposed on the DevKitC-1); replaced fragile PT100X float-equality sensor detection with a threshold; moved brew-timer expiry out of `display_update()` into a dedicated `checkTimerExpiry()` called every `loop()` iteration; narrowed the `pid/#` MQTT subscription to `pid/+` so the device no longer round-trips its own status publishes; gated `pid/enable` on standalone mode so it can't set a latent `PID_state` while in slave mode.
 - [x] BME280 → BME680 sensor switch (firmware + schematic + BOM + config)
 - [x] Screw terminal connector list in README
 - [x] Free GPIO expansion headers (J10 power tap, J11 UART, J12 GPIO — IO15/IO22/IO23)
