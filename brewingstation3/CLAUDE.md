@@ -143,7 +143,63 @@ PCF8574_PIN_LED_100     P5
 - [x] **Multiple MAX31865 sensors** — deliberately dropped; single MAX31865 only
 
 ### Post-assembly validation (needs the physical board — not yet soldered)
-- [ ] OTA update workflow: verify `ArduinoOTA` end-to-end on real hardware once assembled — flash over LAN, confirm reboot into new firmware, confirm `OTA_PASSWORD` in `config.h` is a real password (not the `"change-me"` placeholder default) before relying on it. Work through this together to establish a repeatable OTA workflow, not just a one-off test.
+
+Work through roughly in this order — each stage assumes the previous one passed.
+
+**1. Power-on & connectivity**
+- [ ] Board powers up clean — check 3V3/5V rails before first boot, no shorts/smoke
+- [ ] Serial console (USB-CDC) shows boot log; both OLEDs run the boot animation at 0x3C/0x3D
+- [ ] PCF8574 LED expander detected (no "not found" warning); LED boot animation runs
+- [ ] WiFi connects with real `config.h` credentials; mDNS resolves `ESP-BREWING.local`
+- [ ] MQTT connects to the broker; `device` status topic publishes on schedule
+- [ ] NTP sync succeeds — Display 1 switches from uptime to wall-clock time
+- [ ] OTA update workflow end-to-end: flash over LAN, confirm reboot into new firmware. Set a real `OTA_PASSWORD` in `config.h` first — it's still the `"change-me"` placeholder. Work through this together to build a repeatable OTA workflow, not just a one-off test.
+
+**2. Sensors**
+- [ ] All 3 DS18B20s enumerate over OneWire (check `numberOfDevices` / syslog output, not ghosts)
+- [ ] MAX31865 (PT100X) detected and reads a plausible room temperature (not the fault sentinel)
+- [ ] BME680 detected; temperature/humidity/pressure all read plausible values
+- [ ] Confirm `PID_SENSOR_INDEX` actually points at the sensor you intend to drive the PID (physically, not just by config comment)
+- [ ] Two-point calibration for each sensor type: ice water (0°C) and boiling water (100°C), update `SENSOR_*_CAL_POINT{1,2}_{RAW,REF}` in `config.h` from the real readings (currently identity defaults — no correction applied)
+
+**3. Induction cooker**
+- [ ] Relay (WHITE) switches cooker mains on/off correctly
+- [ ] Each of the 6 power steps (P0–P5 / 0–100%) actually changes cooker output — verify against the cooker's own display, not just firmware state
+- [ ] Intermediate power percentages (PWM cycling between adjacent steps) look smooth, not jarring
+- [ ] RX interrupt (BLUE) decodes cooker error codes correctly — trigger at least one real fault if safely possible (e.g. unplug the pot) and confirm the decoded code matches
+- [ ] Fan cooldown delay: relay stays on ~60s after power-off, matches `INDUCTION_FAN_DELAY`
+
+**4. Buttons & panel LEDs**
+- [ ] Measure real ADC readings per button (serial monitor), adjust `BUTTON_THRESHOLD_B1–B5` in `config.h` if they don't match the defaults
+- [ ] Each button sets the correct induction power and lights the matching LED
+- [ ] Debounce works — no double-triggers on a single press
+- [ ] Button-set power is correctly clamped by `powerCap` (regression check for the bug fixed this session)
+
+**5. PID tuning**
+- [ ] Re-tune P/I/D for the actual vessel — current defaults (`45.27` / `0.2371` / `7.2`) were carried over from earlier hardware generations, not derived from this build
+- [ ] Verify PID holds setpoint without excessive oscillation or overshoot
+- [ ] Exercise `pid/enable`, `pid/reset`, `pid/p`, `pid/i`, `pid/d`, `pid/setpoint` via MQTT and confirm each behaves as fixed this session (reset actually clears the integral term, enable is ignored in slave mode, malformed payloads are rejected not zeroed)
+
+**6. Safety systems**
+- [ ] Sensor staleness: disconnect the primary sensor mid-heat, confirm `safetyShutdown()` fires within `SENSOR_STALE_TIMEOUT_MS`
+- [ ] Thermal runaway: confirm shutdown fires if input exceeds setpoint + `PID_SAFETY_OVERSHOOT`
+- [ ] Induction fault codes (E3/E7/E8) trigger safety shutdown, buzzer alarm, and LED emergency blink
+- [ ] Watchdog: confirm a deliberately stalled `loop()` (temporary test build) reboots within `WDT_TIMEOUT_S`
+
+**7. Buzzer**
+- [ ] Step-complete tone (brew timer expiry) is audible and distinct from the alarm tone
+- [ ] Safety-alarm triple beep is audible over ambient brewing noise
+
+**8. Timer & general MQTT control**
+- [ ] `timer/set` + `timer/ctl` (start/pause/reset) behave correctly end-to-end, including the expiry beep/syslog fix from this session
+- [ ] `relay/set` and `gpio5/set` with a `duration` auto-off correctly at expiry
+- [ ] `device/mode` switching between standalone/slave correctly resets PID state both directions
+
+**9. Case fit**
+- [ ] All connectors align with the printed case's panel cutouts (see CASE.md); nothing binds when the lid closes
+
+**10. Soak test**
+- [ ] Run for several hours under normal use; watch `device.heap` for a downward trend (leak) and confirm WiFi/MQTT reconnect resilience after a deliberate broker/router restart
 
 ### Firmware only
 - [x] Sensor calibration: two-point linear calibration (`corrected = raw * slope + offset`) computed at startup from config-defined (raw, reference) point pairs. `computeCalibration()` + `setup_sensor_calibration()` in `src/main.cpp`; per-sensor points (DS18B20 array, MAX31865, BME680) in `config.h` / `config_example.h` as `SENSOR_{DS,PT100X,BME680}_CAL_POINT{1,2}_{RAW,REF}`. Not yet persisted to flash — depends on the LittleFS config-persistence item below.
