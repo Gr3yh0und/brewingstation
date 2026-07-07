@@ -29,6 +29,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `default_8MB.csv` to match the actual N8 (8MB flash) module — each OTA
   app slot grows from 1.25MB to ~3.19MB and LittleFS from 1.4MB to 1.5MB,
   needed to make room for WiFiManager and future web-dashboard work.
+- Built-in web server (`WebServer`/`Update`, both bundled with the
+  arduino-esp32 core — no new `lib_deps`) exposing three tabbed pages
+  under a shared nav bar:
+  - `/` — read-only status dashboard (sensors, setpoint, PID/mode,
+    induction power/cap, relay, GPIO5, brew timer, RSSI, uptime, free
+    heap, version), auto-refreshes every 5s.
+  - `/update` — browser-based firmware upload form; streams straight
+    into the inactive OTA partition via the `Update` library, then
+    reboots.
+  - `/config` — current runtime configuration (MQTT broker/topic
+    prefix, WiFi SSID/IP, power cap, device mode, PID tunings/setpoint;
+    OTA password masked), with a "Download config (.json)" link
+    (`/config/download`) that exports the same data — including the
+    plaintext OTA password — as a downloadable JSON file for backup.
+  `/update` and `/config` (+ its download) are gated behind HTTP Basic
+  Auth using the same `cfgOtaPassword` ArduinoOTA already uses; `/` is
+  unauthenticated (read-only, no secrets). The shared nav bar shows the
+  hostname and current firmware version. The `/update` page also links
+  to the project's GitHub releases page and has a "Check for update"
+  button that runs entirely in the browser (`fetch()` against the
+  GitHub releases API, filtered to `3.*` tags, compared against the
+  running version) — no TLS/HTTPS client added to the firmware itself.
 
 ## [3.0.0-alpha.2] - 2026-07-07
 

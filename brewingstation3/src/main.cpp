@@ -16,6 +16,8 @@
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <WiFiManager.h>
+#include <WebServer.h>
+#include <Update.h>
 #include <Syslog.h>
 #include <arduino-timer.h>
 #include <OneWire.h>
@@ -149,6 +151,9 @@ WiFiManager wm;
 WiFiClient wifiClient;
 WiFiUDP udpClient;
 PubSubClient mqttClient(wifiClient);
+WebServer webServer(80);
+bool webUpdateInProgress = false;
+bool webUpdateFailed     = false;
 
 // Runtime-configurable network/identity settings — provisioned via the WiFiManager portal's
 // custom parameters (see setup()) instead of being fixed at compile time. Seeded from
@@ -1075,6 +1080,207 @@ void handleButton(int val) {
 #endif
 }
 
+// ─── Web dashboard + browser OTA ───────────────────────────────────────────────
+// Minimal built-in WebServer (no extra lib_deps — WebServer.h/Update.h ship with the
+// arduino-esp32 core, same as ArduinoOTA/WiFi). Read-only status page plus a browser
+// firmware-upload form, both gated behind the same OTA password ArduinoOTA already uses.
+
+const char WEB_PAGE_HEAD[] PROGMEM =
+    "<!DOCTYPE html><html><head><meta http-equiv='refresh' content='5'>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<title>" HOSTNAME "</title>"
+    "<style>body{font-family:sans-serif;background:#111;color:#eee;padding:1em}"
+    "table{border-collapse:collapse}td{padding:2px 12px 2px 0}a{color:#6cf;text-decoration:none}"
+    ".nav{display:flex;align-items:baseline;flex-wrap:wrap;margin-bottom:1em}"
+    ".nav .brand{font-weight:bold;color:#eee;margin-right:1em}"
+    ".nav .brand .ver{color:#888;font-weight:normal;font-size:0.85em;margin-left:6px}"
+    ".nav a{display:inline-block;padding:6px 14px;margin-right:4px;background:#222;border-radius:4px 4px 0 0}"
+    ".nav a.active{background:#6cf;color:#111;font-weight:bold}"
+    "</style></head><body>";
+
+// Shared header + nav bar; `active` is "" / "update" / "config" to highlight the current tab.
+// The status page auto-refreshes (meta refresh above) — that's harmless on /update and /config
+// too since neither holds any unsaved form state worth losing every 5s.
+String webPageHeader(const char *active) {
+  String html = FPSTR(WEB_PAGE_HEAD);
+  html += "<div class='nav'>";
+  html += "<span class='brand'>" HOSTNAME "<span class='ver'>v" VERSION "</span></span>";
+  html += "<a href='/'"          + String(strcmp(active, "")       == 0 ? " class='active'" : "") + ">Status</a>";
+  html += "<a href='/update'"    + String(strcmp(active, "update") == 0 ? " class='active'" : "") + ">Update</a>";
+  html += "<a href='/config'"    + String(strcmp(active, "config") == 0 ? " class='active'" : "") + ">Config</a>";
+  html += "</div>";
+  return html;
+}
+
+void handleWebRoot() {
+  String html = webPageHeader("");
+  html += "<h2>" HOSTNAME "</h2><table>";
+  for (int i = 0; i < numberOfDevices; i++) {
+    html += "<tr><td>Sensor " + String(i) + "</td><td>" + String(temperatures[i], 1) + " &deg;C</td></tr>";
+  }
+  html += "<tr><td>Setpoint</td><td>" + String(PID_Setpoint, 1) + " &deg;C</td></tr>";
+  html += "<tr><td>PID</td><td>" + String(PID_state ? "on" : "off") + "</td></tr>";
+  html += "<tr><td>Mode</td><td>" + String(deviceMode == MODE_SLAVE ? "slave" : "standalone") + "</td></tr>";
+  html += "<tr><td>Induction power</td><td>" + String(inductionCooker.power) + " % (cap " + String(powerCap) + " %)</td></tr>";
+  html += "<tr><td>Relay</td><td>" + String(inductionCooker.isRelayon ? "on" : "off") + "</td></tr>";
+  html += "<tr><td>GPIO5</td><td>" + String(gpio5State ? "on" : "off") + "</td></tr>";
+  if (brewTimer.running) {
+    html += "<tr><td>Brew timer</td><td>" + String(timerRemainingMs() / 1000UL) + " s remaining</td></tr>";
+  } else {
+    html += "<tr><td>Brew timer</td><td>stopped</td></tr>";
+  }
+  html += "<tr><td>WiFi RSSI</td><td>" + String(WiFi.RSSI()) + " dBm</td></tr>";
+  html += "<tr><td>Uptime</td><td>" + String(millis() / 1000UL) + " s</td></tr>";
+  html += "<tr><td>Free heap</td><td>" + String(ESP.getFreeHeap()) + " B</td></tr>";
+  html += "<tr><td>Version</td><td>" VERSION "</td></tr>";
+  html += "</table></body></html>";
+  webServer.send(200, "text/html", html);
+}
+
+// GitHub repo backing the release-check link/button below. v3 releases use "3.*" tags
+// (kept separate from V1's plain "vX.Y.Z" tags) — see CHANGELOG.md.
+#define GITHUB_REPO_URL "https://github.com/Gr3yh0und/brewingstation"
+
+void handleWebUpdatePage() {
+  if (!webServer.authenticate(hostname, cfgOtaPassword)) return webServer.requestAuthentication();
+  String html = webPageHeader("update");
+  html += "<h2>Firmware update</h2>"
+          "<form method='POST' action='/update' enctype='multipart/form-data'>"
+          "<input type='file' name='firmware' accept='.bin'> "
+          "<input type='submit' value='Upload'></form>"
+          "<p><a href='" GITHUB_REPO_URL "/releases' target='_blank' rel='noopener'>View releases on GitHub</a></p>"
+          "<p><button onclick='checkUpdate()'>Check for update</button> <span id='updateResult'></span></p>"
+          // Runs entirely in the browser (fetches api.github.com directly) rather than on
+          // the device — avoids needing a TLS stack/root CA on the ESP32 just to check a
+          // version string. Requires the *browser* to have internet access; the device's
+          // own LAN connectivity is irrelevant to this check.
+          "<script>"
+          "var CURRENT_VERSION='" VERSION "';"
+          "function checkUpdate(){"
+            "var r=document.getElementById('updateResult');"
+            "r.textContent='Checking...';"
+            "fetch('https://api.github.com/repos/Gr3yh0und/brewingstation/releases')"
+            ".then(function(res){return res.json();})"
+            ".then(function(list){"
+              "var v3=list.find(function(rel){return rel.tag_name.indexOf('3.')===0;});"
+              "if(!v3){r.textContent='No v3 release found on GitHub.';return;}"
+              "if(v3.tag_name===CURRENT_VERSION){"
+                "r.textContent='Up to date ('+CURRENT_VERSION+').';"
+              "}else{"
+                "r.innerHTML='Update available: '+v3.tag_name+' (running '+CURRENT_VERSION+') "
+                  "&mdash; <a href=\"'+v3.html_url+'\" target=\"_blank\" rel=\"noopener\">view release</a>';"
+              "}"
+            "})"
+            ".catch(function(){r.textContent='Check failed (browser has no internet access, or GitHub is unreachable).';});"
+          "}"
+          "</script>"
+          "</body></html>";
+  webServer.send(200, "text/html", html);
+}
+
+// Streams the uploaded .bin straight into the inactive OTA partition via the Update
+// library — same mechanism ArduinoOTA uses, just fed from an HTTP multipart body
+// instead of the network OTA protocol.
+void handleWebUpdateUpload() {
+  HTTPUpload &upload = webServer.upload();
+  if (upload.status == UPLOAD_FILE_START) {
+    webUpdateFailed = false;
+    display_writex(display, 2, "OTA (web): updating...", true);
+    if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+      webUpdateFailed = true;
+      Update.printError(Serial);
+    }
+  } else if (upload.status == UPLOAD_FILE_WRITE && !webUpdateFailed) {
+    if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+      webUpdateFailed = true;
+      Update.printError(Serial);
+    }
+  } else if (upload.status == UPLOAD_FILE_END && !webUpdateFailed) {
+    if (!Update.end(true)) {
+      webUpdateFailed = true;
+      Update.printError(Serial);
+    }
+  }
+}
+
+void handleWebUpdateResult() {
+  if (!webServer.authenticate(hostname, cfgOtaPassword)) return webServer.requestAuthentication();
+  bool ok = !webUpdateFailed && !Update.hasError();
+  String html = webPageHeader("update");
+  html += ok ? "<h2>Update OK, rebooting&hellip;</h2>" : "<h2>Update failed</h2>";
+  html += "</body></html>";
+  webServer.send(200, "text/html", html);
+  if (ok) {
+    display_writex(display, 2, "OTA (web): done, reboot", true);
+    delay(500);
+    ESP.restart();
+  } else {
+    display_writex(display, 2, "OTA (web): failed", true);
+  }
+}
+
+// Builds the current runtime config as JSON — shared by the human-readable /config page
+// (OTA password masked there) and the raw /config/download attachment (unmasked, since
+// downloading it is a deliberate backup action already gated behind the same auth).
+void buildConfigJson(JsonDocument &doc) {
+  doc["hostname"]    = HOSTNAME;
+  doc["version"]     = VERSION;
+  doc["wifiSsid"]    = WiFi.SSID();
+  doc["ipAddress"]   = WiFi.localIP().toString();
+  doc["mqttBroker"]  = cfgMqttBroker;
+  doc["mqttRoot"]    = cfgMqttRoot;
+  doc["mqttDevice"]  = cfgMqttDevice;
+  doc["otaPassword"] = cfgOtaPassword;
+  doc["powerCap"]    = powerCap;
+  doc["deviceMode"]  = (deviceMode == MODE_SLAVE) ? "slave" : "standalone";
+  doc["pidEnabled"]  = PID_state;
+  doc["pidSetpoint"] = PID_Setpoint;
+  doc["pidP"]        = PID_P;
+  doc["pidI"]        = PID_I;
+  doc["pidD"]        = PID_D;
+}
+
+void handleWebConfigPage() {
+  if (!webServer.authenticate(hostname, cfgOtaPassword)) return webServer.requestAuthentication();
+  JsonDocument doc;
+  buildConfigJson(doc);
+  String html = webPageHeader("config");
+  html += "<h2>Current configuration</h2><table>";
+  html += "<tr><td>Hostname</td><td>" HOSTNAME "</td></tr>";
+  html += "<tr><td>Firmware version</td><td>" VERSION "</td></tr>";
+  html += "<tr><td>WiFi SSID</td><td>" + String(doc["wifiSsid"].as<const char*>()) + "</td></tr>";
+  html += "<tr><td>IP address</td><td>" + String(doc["ipAddress"].as<const char*>()) + "</td></tr>";
+  html += "<tr><td>MQTT broker</td><td>" + String(cfgMqttBroker) + "</td></tr>";
+  html += "<tr><td>MQTT topic prefix</td><td>" + String(cfgMqttRoot) + "/" + String(cfgMqttDevice) + "</td></tr>";
+  html += "<tr><td>OTA password</td><td>&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull; (see download for plaintext)</td></tr>";
+  html += "<tr><td>Power cap</td><td>" + String(powerCap) + " %</td></tr>";
+  html += "<tr><td>Device mode</td><td>" + String(deviceMode == MODE_SLAVE ? "slave" : "standalone") + "</td></tr>";
+  html += "<tr><td>PID enabled</td><td>" + String(PID_state ? "yes" : "no") + "</td></tr>";
+  html += "<tr><td>PID setpoint</td><td>" + String(PID_Setpoint, 1) + " &deg;C</td></tr>";
+  html += "<tr><td>PID tunings (P/I/D)</td><td>" + String(PID_P, 4) + " / " + String(PID_I, 4) + " / " + String(PID_D, 4) + "</td></tr>";
+  html += "</table><p><a href='/config/download'>Download config (.json)</a></p></body></html>";
+  webServer.send(200, "text/html", html);
+}
+
+void handleWebConfigDownload() {
+  if (!webServer.authenticate(hostname, cfgOtaPassword)) return webServer.requestAuthentication();
+  JsonDocument doc;
+  buildConfigJson(doc);
+  String json;
+  serializeJsonPretty(doc, json);
+  webServer.sendHeader("Content-Disposition", "attachment; filename=\"" HOSTNAME "-config.json\"");
+  webServer.send(200, "application/json", json);
+}
+
+void setup_web_server() {
+  webServer.on("/", HTTP_GET, handleWebRoot);
+  webServer.on("/update", HTTP_GET, handleWebUpdatePage);
+  webServer.on("/update", HTTP_POST, handleWebUpdateResult, handleWebUpdateUpload);
+  webServer.on("/config", HTTP_GET, handleWebConfigPage);
+  webServer.on("/config/download", HTTP_GET, handleWebConfigDownload);
+  webServer.begin();
+}
+
 // Timer callback wrappers — arduino-timer v2.3+ requires bool(void*) signature
 static bool _cb_temperature_read(void*)  { temperature_read();  return true; }
 static bool _cb_publishStatus(void*)     { publishStatus();     return true; }
@@ -1201,6 +1407,9 @@ void setup() {
   ArduinoOTA.begin();
   display_writex(display, 2, "OTA: ready", false);
 
+  // Web dashboard + browser-based OTA upload (http://<ip>/, http://<ip>/update)
+  setup_web_server();
+
   // MQTT
   display_writex(display, 3, "MQTT...", false);
   mqttClient.setServer(cfgMqttBroker, BROKER_PORT);
@@ -1285,6 +1494,7 @@ void loop() {
   handleButton(analogRead(BUTTON_PIN));
 
   ArduinoOTA.handle();
+  webServer.handleClient();
 
   mqttClient.loop();
   if (!mqttClient.connected()) reconnect_mqtt();

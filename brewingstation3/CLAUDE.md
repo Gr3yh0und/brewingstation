@@ -88,6 +88,12 @@ pio device monitor
 
 **Partition table:** `default_8MB.csv` (dual ~3.19MB OTA app slots + 1.5MB LittleFS) — the board is the N8 (8MB flash) module, but the project was left on PlatformIO's stock 4MB `default.csv` until the WiFiManager work needed the extra headroom. If flash usage ever gets tight again, this is already the largest dual-OTA-slot table available; the fallback would be dropping one OTA slot (`huge_app.csv`-style) rather than shrinking LittleFS.
 
+**Web dashboard + browser OTA:** Built-in `WebServer`/`Update` (both ship with the arduino-esp32 core — no `lib_deps` entry needed, same as `WiFi`/`ArduinoOTA`). `setup_web_server()` registers three tabbed pages sharing a nav bar (`webPageHeader(active)` in `src/main.cpp`):
+  - `GET /` — read-only status page (sensors, setpoint, PID/mode, induction power/cap, relay, GPIO5, brew timer, RSSI, uptime, heap, version). Meta-refresh every 5s, deliberately no JS/AJAX. Unauthenticated.
+  - `GET|POST /update` — firmware upload form + multipart handler; streams into the inactive OTA partition via `Update.begin/write/end`, `ESP.restart()`s on success. Also links to the GitHub releases page and has a "Check for update" button — that check runs client-side (browser `fetch()` against `api.github.com/repos/.../releases`, filtered to `3.*` tags, compared against `VERSION`), deliberately not on-device, to avoid needing a TLS stack/root CA in firmware just for a version string.
+  - `GET /config` + `GET /config/download` — current runtime config (broker/topic prefix/WiFi/power cap/mode/PID); the page masks the OTA password, the download link serves the same fields (via shared `buildConfigJson()`) as a plaintext `.json` attachment for backup.
+  `/update` and `/config*` are gated behind HTTP Basic Auth using `cfgOtaPassword` — the same password ArduinoOTA uses, so there's only one password to manage. `webServer.handleClient()` must be called every `loop()` iteration, same cadence as `ArduinoOTA.handle()`. The shared nav bar (`webPageHeader()`) shows `HOSTNAME`/`VERSION`; `GITHUB_REPO_URL` in `src/main.cpp` points the releases link/update-check at `Gr3yh0und/brewingstation` — update it if the repo is ever forked/renamed.
+
 ---
 
 ## Config Reference (key defines in include/config_example.h)
@@ -210,8 +216,8 @@ Work through roughly in this order — each stage assumes the previous one passe
 ### Firmware only
 - [x] Sensor calibration: two-point linear calibration (`corrected = raw * slope + offset`) computed at startup from config-defined (raw, reference) point pairs. `computeCalibration()` + `setup_sensor_calibration()` in `src/main.cpp`; per-sensor points (DS18B20 array, MAX31865, BME680) in `config.h` / `config_example.h` as `SENSOR_{DS,PT100X,BME680}_CAL_POINT{1,2}_{RAW,REF}`. Not yet persisted to flash or settable via MQTT — LittleFS persistence infra exists now (see item below) but calibration points aren't wired into it; still config.h-only.
 - [x] WiFi setup via captive portal (WiFiManager) — `wm.autoConnect()`/`startConfigPortal()` in `src/main.cpp`, opens on first boot/failed connect or by holding any panel button ~2s at power-on. Credentials live in the ESP32's own NVS (not `config.h`). The same portal's custom fields also provision the MQTT broker/topic-prefix/OTA password (see items below).
-- [ ] OTA via browser upload (web portal) — ArduinoOTA already works over LAN
-- [ ] Web interface: live dashboard
+- [x] OTA via browser upload (web portal) — built-in `WebServer`/`Update`, `GET|POST /update` in `setup_web_server()`, gated behind HTTP Basic Auth with `cfgOtaPassword`. See "Web dashboard + browser OTA" above.
+- [x] Web interface: live dashboard — `GET /` in `setup_web_server()`, read-only, meta-refresh every 5s (no JS/AJAX by design — kept deliberately simple). Tabbed nav also links to `/update` and a `/config` page (current MQTT/WiFi/PID config, OTA password masked, with a JSON download for backup). Same section as above.
 - [x] Config persistence via LittleFS (survive reboot) — power cap, device mode, PID
       state/tunings/setpoint saved to `/settings.json`, reloaded at boot; MQTT
       broker/topic-prefix/OTA password saved to `/netconfig.json` via the WiFiManager portal

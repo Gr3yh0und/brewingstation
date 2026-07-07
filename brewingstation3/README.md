@@ -40,7 +40,8 @@ Cutting a release: `git tag 3.0.0-alpha.N && git push origin 3.0.0-alpha.N` — 
 ### Network & Platform
 - **CraftBeerPi 3 & 4** compatible via MQTT.
 - **WiFi provisioning via captive portal** — WiFiManager opens an AP automatically on first boot or a failed connect, or can be forced by holding any panel button for ~2s at power-on. No WiFi credentials are stored in `config.h`. The same portal also lets you set the MQTT broker address, MQTT topic prefix, and OTA password without reflashing.
-- **OTA firmware updates** — ArduinoOTA on port 8266, password-protected (`OTA_PASSWORD` in `config.h`, changeable later via the WiFiManager portal).
+- **OTA firmware updates** — ArduinoOTA on port 8266, or via the web dashboard's upload form (`http://<ip>/update`); both password-protected (`OTA_PASSWORD` in `config.h`, changeable later via the WiFiManager portal).
+- **Web dashboard** — three tabbed pages at `http://<ip>/`, with the hostname and running firmware version shown in the nav bar: **Status** (sensors, setpoint, PID/mode, induction power, relay/GPIO5, brew timer, WiFi signal, uptime, version — auto-refreshes every 5s, no login), **Update** (browser firmware upload, a link to the GitHub releases page, and a "Check for update" button that compares the running version against GitHub directly from the browser), and **Config** (current MQTT/WiFi/PID settings, with a JSON download for backup). Update and Config require the OTA password (HTTP Basic Auth).
 - **mDNS** — Device advertises as `ESP-BREWING.local`.
 - **Syslog** — UDP logging to backend server on port 514.
 - **NTP time sync** — `configTzTime()` called after WiFi connects; POSIX timezone string configurable via `NTP_TIMEZONE` in `config.h`. When synced, Display 1 shows wall-clock time instead of uptime.
