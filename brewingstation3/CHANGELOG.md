@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- MQTT Last Will and Testament: the broker now publishes a retained "offline"
+  on `{root}/{device}/availability` if the device drops off without a clean
+  disconnect (crash, power loss, WiFi drop), and the device publishes a
+  retained "online" on the same topic once connected (both at startup and
+  after every reconnect). Lets any subscriber — CraftBeerPi, a future Home
+  Assistant integration, or a plain `mosquitto_sub` — detect device loss
+  directly instead of inferring it from a stale `device` status topic.
+
 ## [3.0.0-alpha.3] - 2026-07-07
 
 ### Added

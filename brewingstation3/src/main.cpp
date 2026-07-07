@@ -92,13 +92,14 @@ char TOPIC_GPIO5_SET[72];
 
 // Publish-side topics — pre-computed in setup() to avoid per-call heap allocations.
 // Same worst-case sizing rationale as the subscribe-side buffers above.
-char PUBLISH_TOPIC_SENSOR_PREFIX[72];  // e.g. "cave/brewery/sensor/"
-char PUBLISH_TOPIC_INDUCTION[72];      // e.g. "cave/brewery/induction"
-char PUBLISH_TOPIC_PID[72];            // e.g. "cave/brewery/pid"
-char PUBLISH_TOPIC_TIMER[72];          // e.g. "cave/brewery/timer"
-char PUBLISH_TOPIC_DEVICE[72];         // e.g. "cave/brewery/device"
-char PUBLISH_TOPIC_RELAY[72];          // e.g. "cave/brewery/relay"
-char PUBLISH_TOPIC_GPIO5[72];          // e.g. "cave/brewery/gpio5"
+char PUBLISH_TOPIC_SENSOR_PREFIX[72];  // e.g. "{root}/{device}/sensor/"
+char PUBLISH_TOPIC_INDUCTION[72];      // e.g. "{root}/{device}/induction"
+char PUBLISH_TOPIC_PID[72];            // e.g. "{root}/{device}/pid"
+char PUBLISH_TOPIC_TIMER[72];          // e.g. "{root}/{device}/timer"
+char PUBLISH_TOPIC_DEVICE[72];         // e.g. "{root}/{device}/device"
+char PUBLISH_TOPIC_RELAY[72];          // e.g. "{root}/{device}/relay"
+char PUBLISH_TOPIC_GPIO5[72];          // e.g. "{root}/{device}/gpio5"
+char PUBLISH_TOPIC_AVAILABILITY[72];   // e.g. "{root}/{device}/availability" — LWT + retained "online"/"offline"
 
 // PCF8574 I2C GPIO expander — drives all 6 power LEDs
 PCF8574 ledExpander(PCF8574_ADDR);
@@ -821,7 +822,8 @@ void reconnect_mqtt() {
     unsigned long now = millis();
     if (now - lastAttempt >= MQTT_RECONNECT_INTERVAL_MS) {
       lastAttempt = now;
-      mqttClient.connect(HOSTNAME, BROKER_USER, BROKER_PASSWORD);
+      mqttClient.connect(HOSTNAME, BROKER_USER, BROKER_PASSWORD,
+                          PUBLISH_TOPIC_AVAILABILITY, 0, true, "offline");
       char buf[32];
       snprintf(buf, sizeof(buf), "MQTT reconnect #%d", ++attempts);
       display_writex(display, 2, buf, true);
@@ -833,6 +835,7 @@ void reconnect_mqtt() {
     ArduinoOTA.handle();  // stay responsive to OTA during reconnect
   }
 
+  mqttClient.publish(PUBLISH_TOPIC_AVAILABILITY, "online", true);
   subscribe_topics();
   syslog.log(LOG_INFO, "MQTT reconnected");
 }
@@ -1418,9 +1421,20 @@ void setup() {
 
   // MQTT
   display_writex(display, 3, "MQTT...", false);
+  // Availability topic needs to exist before connect() so it can be passed as the LWT;
+  // only depends on cfgMqttRoot/cfgMqttDevice (already loaded by loadNetConfig() above),
+  // not on an active connection, so it's computed here rather than in the main
+  // "pre-compute topic strings" block below.
+  snprintf(PUBLISH_TOPIC_AVAILABILITY, sizeof(PUBLISH_TOPIC_AVAILABILITY),
+           "%s/%s/availability", cfgMqttRoot, cfgMqttDevice);
   mqttClient.setServer(cfgMqttBroker, BROKER_PORT);
   mqttClient.setCallback(mqttCallback);
-  mqttClient.connect(HOSTNAME, BROKER_USER, BROKER_PASSWORD);
+  // LWT: broker publishes a retained "offline" on this topic if the device drops off
+  // without a clean disconnect (crash, power loss, WiFi drop) — lets any subscriber
+  // (CraftBeerPi, HA, a plain mosquitto_sub) detect device loss instead of only
+  // inferring it from a stale `device` status topic.
+  mqttClient.connect(HOSTNAME, BROKER_USER, BROKER_PASSWORD,
+                      PUBLISH_TOPIC_AVAILABILITY, 0, true, "offline");
   int counter = 0;
   while (!mqttClient.connected()) {
     delay(100);
@@ -1431,6 +1445,7 @@ void setup() {
       ESP.restart();
     }
   }
+  mqttClient.publish(PUBLISH_TOPIC_AVAILABILITY, "online", true);
   display_writex(display, 3, "MQTT: ok", false);
 
   // Pre-compute publish- and subscribe-side topic strings (done once to avoid per-call heap

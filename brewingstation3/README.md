@@ -100,7 +100,7 @@ Copy `include/config_example.h` to `include/config.h` and fill in your values. `
 ```cpp
 #define HOSTNAME        "ESP-BREWING"
 #define SERVER_ADDRESS  "192.168.0.x"   // Raspberry Pi IP
-#define MQTT_ROOT_PATH  "cave"
+#define MQTT_ROOT_PATH  "home"
 #define MQTT_DEVICE     "brewery"
 ```
 

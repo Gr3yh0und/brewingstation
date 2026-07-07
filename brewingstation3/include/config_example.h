@@ -13,7 +13,7 @@
 // then override at runtime (persisted to /netconfig.json). Change these if you want different
 // out-of-the-box values; there's no need to touch them once a device has been provisioned.
 #define OTA_PASSWORD    "change-me"  // set a strong password; anyone on the LAN can push firmware otherwise
-#define MQTT_ROOT_PATH "cave"
+#define MQTT_ROOT_PATH "home"
 #define MQTT_DEVICE "brewery"
 
 // Syslog server connection info

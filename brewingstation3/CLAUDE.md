@@ -94,6 +94,8 @@ pio device monitor
   - `GET /config` + `GET /config/download` — current runtime config (broker/topic prefix/WiFi/power cap/mode/PID); the page masks the OTA password, the download link serves the same fields (via shared `buildConfigJson()`) as a plaintext `.json` attachment for backup.
   `/update` and `/config*` are gated behind HTTP Basic Auth using `cfgOtaPassword` — the same password ArduinoOTA uses, so there's only one password to manage. `webServer.handleClient()` must be called every `loop()` iteration, same cadence as `ArduinoOTA.handle()`. The shared nav bar (`webPageHeader()`) shows `HOSTNAME`/`VERSION`, plus a yellow "pre-release" badge when `isPrereleaseVersion(VERSION)` (in `pure_logic.h`, native-tested) is true; `GITHUB_REPO_URL` in `src/main.cpp` points the releases link/update-check at `Gr3yh0und/brewingstation` — update it if the repo is ever forked/renamed.
 
+**MQTT availability (LWT):** `mqttClient.connect(...)` (in both `setup()` and `reconnect_mqtt()`) now passes a Last Will — `{root}/{device}/availability`, retained, payload `"offline"` — so the broker announces device loss even on an unclean disconnect (crash/power loss/WiFi drop). The device publishes a retained `"online"` on the same topic right after each successful connect. `PUBLISH_TOPIC_AVAILABILITY` is computed right before the first `mqttClient.connect()` call in `setup()` (needs only `cfgMqttRoot`/`cfgMqttDevice`, already loaded by `loadNetConfig()`), ahead of the main "pre-compute topic strings" block that runs after that first connect succeeds — keep this ordering if refactoring that block. This was a deliberate prerequisite for a possible future Home Assistant MQTT auto-discovery integration (HA uses an `availability_topic` to mark entities unavailable), but stands on its own as a general MQTT best practice regardless of whether that's ever built.
+
 ---
 
 ## Config Reference (key defines in include/config_example.h)
@@ -144,7 +146,7 @@ PCF8574_PIN_LED_100     P5
 - **Syslog** listener on UDP port 514
 - **InfluxDB + Telegraf + Grafana** for storage and visualization
 - No cloud services. LAN-only.
-- MQTT root: `cave/brewery/...` (configurable via `MQTT_ROOT_PATH` / `MQTT_DEVICE`)
+- MQTT root: `home/brewery/...` (configurable via `MQTT_ROOT_PATH` / `MQTT_DEVICE`)
 
 ---
 
