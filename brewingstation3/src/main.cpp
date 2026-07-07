@@ -35,7 +35,7 @@
 #include "config.h"
 #include "pure_logic.h"
 
-#define VERSION "3.0.0-alpha.2"
+#define VERSION "3.0.0-alpha.3"
 
 // Forward declarations
 void setLED(int value);

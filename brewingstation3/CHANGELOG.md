@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.0-alpha.3] - 2026-07-07
+
 ### Added
 - Extracted more hardware-independent logic into `pure_logic.h` for native unit
   testing: induction power→PWM-level math (`computePowerLevel`), the RX pulse
@@ -109,6 +111,7 @@ nothing tested end-to-end).
 - Firmware explicitly marked as work-in-progress (`VERSION` string,
   README/CLAUDE.md notes) to signal untested hardware status.
 
-[Unreleased]: https://github.com/Gr3yh0und/brewingstation/compare/3.0.0-alpha.2...HEAD
+[Unreleased]: https://github.com/Gr3yh0und/brewingstation/compare/3.0.0-alpha.3...HEAD
+[3.0.0-alpha.3]: https://github.com/Gr3yh0und/brewingstation/compare/3.0.0-alpha.2...3.0.0-alpha.3
 [3.0.0-alpha.2]: https://github.com/Gr3yh0und/brewingstation/compare/3.0.0-alpha.1...3.0.0-alpha.2
 [3.0.0-alpha.1]: https://github.com/Gr3yh0und/brewingstation/releases/tag/3.0.0-alpha.1
